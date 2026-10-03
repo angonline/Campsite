@@ -1,0 +1,14 @@
+{
+  "name": "camp-bot",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@line/bot-sdk": "^9.0.0",
+    "@supabase/supabase-js": "^2.45.0",
+    "dotenv": "^16.4.0",
+    "express": "^4.19.0"
+  }
+}
