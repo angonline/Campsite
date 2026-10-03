@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import * as line from '@line/bot-sdk';
 import { createClient } from '@supabase/supabase-js';
+import { apiRouter } from './api.js';
 
 const lineConfig = {
   channelSecret: process.env.LINE_CHANNEL_SECRET,
@@ -28,6 +29,9 @@ const text = (t) => ({ type: 'text', text: t });
 const baht = (n) => Number(n).toLocaleString('th-TH');
 
 const app = express();
+
+app.use(express.static('public'));
+app.use('/api', express.json(), apiRouter({ supabase, client }));
 
 app.get('/', (_req, res) => res.send('camp-bot is running'));
 
