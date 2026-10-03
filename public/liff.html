@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>จองที่กางเต็นท์</title>
+<title>จองพื้นที่กางเต็นท์</title>
 <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 <style>
   * { box-sizing: border-box; }
@@ -25,6 +25,11 @@
   .err { color: #c0392b; font-size: 14px; margin: 8px 0 0; min-height: 18px; }
   button.go { width: 100%; padding: 14px; font-size: 17px; font-weight: 600; border: 0; border-radius: 12px; background: #06c755; color: #fff; }
   button.go:disabled { background: #b8c4bc; }
+  .terms { font-size: 14px; line-height: 1.6; }
+  .terms h2 { font-size: 15px; margin: 0 0 6px; }
+  .terms ul { margin: 0; padding-left: 20px; }
+  .agree { display: flex; gap: 10px; align-items: flex-start; margin-top: 12px; font-size: 15px; color: #1f2a24; }
+  .agree input { width: 22px; height: 22px; margin: 0; flex: none; }
   #result { display: none; text-align: center; }
   #result img { width: 100%; max-width: 300px; }
   .ok { font-size: 20px; font-weight: 700; color: #1f7a4d; margin-bottom: 6px; }
@@ -32,13 +37,13 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>⛺ จองที่กางเต็นท์</h1>
+  <h1>⛺ จองพื้นที่กางเต็นท์</h1>
 
   <div id="form">
     <div class="card">
       <div class="row">
-        <div><label>วันเข้าพัก</label><input type="date" id="in"></div>
-        <div><label>วันออก</label><input type="date" id="out"></div>
+        <div><label>วันเข้าพัก <br>(เปิดจองวันงานแฝดโพด 14 พย 2569 เท่านั้น)</br></label><input type="date" id="in"></div>
+        <div><label>วันออก (ระบุ 15 พย 2569)</label><input type="date" id="out"></div>
       </div>
       <label>จำนวนคน (สูงสุด 4)</label>
       <select id="guests">
@@ -48,7 +53,7 @@
     </div>
 
     <div class="card">
-      <label>เลือกจุด <span class="hint" id="spotHint">(เลือกวันที่ก่อน)</span></label>
+      <label>เลือกจุดกางเต็นท์ <span class="hint" id="spotHint">(เลือกวันที่ก่อน)</span></label>
       <div class="grid" id="spots"></div>
     </div>
 
@@ -61,6 +66,29 @@
     <div class="card">
       <div class="hint" id="priceNote"></div>
       <div class="price" id="price">ยอดรวม 0 บาท</div>
+    </div>
+
+    <div class="card terms">
+      <h2>เงื่อนไขการจอง</h2>
+      <!-- แก้ข้อความในรายการด้านล่างนี้ได้เลย (เพิ่ม/ลบ <li> ได้) -->
+      <ul>
+        <li>ราคา 500 บาท/จุด/คืน รวมผู้พัก 2 คน หากเข้าพักเกิน/จุด เพิ่มคนละ 200 บาท/คืน (สูงสุด 4 คนต่อจุด)</li>
+        <li>เวลาเข้าพัก [ใส่เวลา] และเวลาออก [ใส่เวลา]</li>
+        <li>กรุณาชำระเงินและส่งสลิปภายใน 60 นาทีหลังจอง มิฉะนั้นระบบจะปล่อยจุดคืนอัตโนมัติ</li>
+        <li>การจองจะสมบูรณ์เมื่อแอดมินตรวจสอบและยืนยันแล้ว</li>
+        <li>การยกเลิกและคืนเงิน: หากทำการยืนยันการจองแล้ว ทางลานขอสงวนสิทธิ์ในการคืนเงินทุกกรณี</li>
+<li>เข้า Check in ได้ 13.00 น. Check out 12.00 น.</li>
+<li>ไม่อนุญาตให้ใช้แอร์เคลื่อนที่ เตาไฟฟ้า และเครื่องใช้ไฟฟ้ากำลังวัตต์สูงทุกชนิด </li>
+<li>งดใช้เสียงทุกประเภท ตั้งแต่ 22.00 - 07.00 น. </li>
+<li>ไม่หัก หรือทำลาย ทรัพย์สินของทางลาน เช่นห้ามตัดต้นไม้ ดอกไม้ หรือสิ่งของภายในลาน</li>
+<li>ห้ามทิ้งขยะทุกชนิดภายในบริเวณลาน ต้องนำไปทิ้งที่ถุงดำหรือบริเวณที่ทางลานจัดให้ทิ้งเท่านั้น</li>
+<li>ทรัพย์สินที่มีค่า ผู้เข้าแคมป์ต้องเก็บรักษาให้มิดชิด หากสูญหายจะไม่อยู่ในความรับผิดชอบของทางลานทุกกรณี</li>
+<li>ห้ามนำบุคคลภายนอก ที่ไม่ได้แจ้งเข้าพักภายในลาน เข้ามาภายในลานก่อนได้รับอนุญาตโดยเด็ดขาด</li>
+<li>หากมีบุคคลภายนอกที่ต้องการเข้ามาชั่วคราว โดยต้องออกจากลานก่อนเวลา 18:00 น. มีค่าเข้าคนละ 100บาท</li>
+<li>ห้ามเปิดเครื่องเสียงติดรถยนต์ ทุกกรณี</li>
+        <li>ห้ามนำสิ่งของผิดกฎหมายเข้ามาภายในบริเวณลาน เช่น อาวุธปืน ยาเสพติด อื่นๆที่ผิดกฎหมาย หากพบเห็นทางลานขอใช้สิทธิ์ในการแจ้งเจ้าหน้าที่ตำรวจเข้ามาดูแลความปลอดภัย</li>
+      </ul>
+      <label class="agree"><input type="checkbox" id="agree"><span>ข้าพเจ้าได้อ่านและยอมรับเงื่อนไขการจองข้างต้น</span></label>
     </div>
 
     <button class="go" id="submit" disabled>ยืนยันการจอง</button>
@@ -100,7 +128,7 @@ function refreshPrice() {
 
 function validate() {
   const ok = selected && nights() > 0 && $('name').value.trim() &&
-    /^0\d{8,9}$/.test($('phone').value.replace(/[-\s]/g, '')) && $('address').value.trim().length >= 5;
+    /^0\d{8,9}$/.test($('phone').value.replace(/[-\s]/g, '')) && $('address').value.trim().length >= 5 && $('agree').checked;
   $('submit').disabled = !ok;
 }
 
@@ -173,6 +201,7 @@ async function submit() {
   ['in', 'out'].forEach((id) => $(id).addEventListener('change', onDates));
   $('guests').addEventListener('change', refreshPrice);
   ['name', 'phone', 'address'].forEach((id) => $(id).addEventListener('input', validate));
+  $('agree').addEventListener('change', validate);
   $('submit').addEventListener('click', submit);
   $('close').addEventListener('click', () => liff.closeWindow());
   refreshPrice();
