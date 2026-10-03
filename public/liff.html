@@ -1,1 +1,182 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>จองที่กางเต็นท์</title>
+<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, "Sarabun", "Noto Sans Thai", sans-serif; background: #f4f6f4; color: #1f2a24; }
+  .wrap { max-width: 480px; margin: 0 auto; padding: 16px 16px 40px; }
+  h1 { font-size: 20px; margin: 4px 0 14px; }
+  .card { background: #fff; border-radius: 14px; padding: 14px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  label { display: block; font-size: 13px; color: #55645b; margin: 10px 0 4px; }
+  label:first-child { margin-top: 0; }
+  input, select, textarea { width: 100%; padding: 11px; font-size: 16px; border: 1px solid #cfd8d2; border-radius: 10px; background: #fff; font-family: inherit; }
+  textarea { resize: vertical; min-height: 70px; }
+  .row { display: flex; gap: 10px; }
+  .row > div { flex: 1; }
+  .grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+  .spot { padding: 10px 0; border: 1px solid #cfd8d2; border-radius: 10px; background: #fff; font-size: 14px; text-align: center; cursor: pointer; }
+  .spot.sel { background: #1f7a4d; color: #fff; border-color: #1f7a4d; }
+  .hint { font-size: 13px; color: #6b7a71; }
+  .price { font-size: 18px; font-weight: 700; color: #1f7a4d; }
+  .err { color: #c0392b; font-size: 14px; margin: 8px 0 0; min-height: 18px; }
+  button.go { width: 100%; padding: 14px; font-size: 17px; font-weight: 600; border: 0; border-radius: 12px; background: #06c755; color: #fff; }
+  button.go:disabled { background: #b8c4bc; }
+  #result { display: none; text-align: center; }
+  #result img { width: 100%; max-width: 300px; }
+  .ok { font-size: 20px; font-weight: 700; color: #1f7a4d; margin-bottom: 6px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>⛺ จองที่กางเต็นท์</h1>
 
+  <div id="form">
+    <div class="card">
+      <div class="row">
+        <div><label>วันเข้าพัก</label><input type="date" id="in"></div>
+        <div><label>วันออก</label><input type="date" id="out"></div>
+      </div>
+      <label>จำนวนคน (สูงสุด 4)</label>
+      <select id="guests">
+        <option value="1">1 คน</option><option value="2" selected>2 คน</option>
+        <option value="3">3 คน</option><option value="4">4 คน</option>
+      </select>
+    </div>
+
+    <div class="card">
+      <label>เลือกจุด <span class="hint" id="spotHint">(เลือกวันที่ก่อน)</span></label>
+      <div class="grid" id="spots"></div>
+    </div>
+
+    <div class="card">
+      <label>ชื่อผู้จอง</label><input id="name" autocomplete="name">
+      <label>เบอร์โทร</label><input id="phone" type="tel" inputmode="tel" autocomplete="tel">
+      <label>ที่อยู่</label><textarea id="address" autocomplete="street-address"></textarea>
+    </div>
+
+    <div class="card">
+      <div class="hint" id="priceNote"></div>
+      <div class="price" id="price">ยอดรวม 0 บาท</div>
+    </div>
+
+    <button class="go" id="submit" disabled>ยืนยันการจอง</button>
+    <div class="err" id="err"></div>
+  </div>
+
+  <div id="result" class="card">
+    <div class="ok">รับจองแล้ว ✅</div>
+    <div id="summary" class="hint"></div>
+    <p><b id="amount"></b></p>
+    <img id="qr" alt="QR ชำระเงิน">
+    <p class="hint">สแกนจ่ายผ่านแอปธนาคาร แล้วส่งรูปสลิปในแชต LINE OA<br>ภายใน <span id="hold"></span> นาที มิฉะนั้นระบบจะปล่อยจุดคืน</p>
+    <button class="go" id="close">กลับไปที่แชต</button>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let cfg, accessToken, selected = null;
+
+const fmt = (n) => Number(n).toLocaleString('th-TH');
+const addDays = (s, d) => { const x = new Date(s); x.setDate(x.getDate() + d); return x.toISOString().slice(0, 10); };
+const nights = () => $('in').value && $('out').value ? Math.round((new Date($('out').value) - new Date($('in').value)) / 86400000) : 0;
+
+function price() {
+  const n = nights(), g = Number($('guests').value);
+  const perNight = cfg.base_price + Math.max(0, g - cfg.base_guests) * cfg.extra_person_price;
+  return { n, perNight, total: n > 0 ? n * perNight : 0 };
+}
+
+function refreshPrice() {
+  const p = price();
+  $('priceNote').textContent = p.n > 0 ? `${fmt(p.perNight)} บาท/คืน × ${p.n} คืน` : 'เลือกวันที่เพื่อดูราคา';
+  $('price').textContent = `ยอดรวม ${fmt(p.total)} บาท`;
+  validate();
+}
+
+function validate() {
+  const ok = selected && nights() > 0 && $('name').value.trim() &&
+    /^0\d{8,9}$/.test($('phone').value.replace(/[-\s]/g, '')) && $('address').value.trim().length >= 5;
+  $('submit').disabled = !ok;
+}
+
+async function loadSpots() {
+  selected = null;
+  $('spots').innerHTML = '';
+  if (nights() < 1) { $('spotHint').textContent = '(เลือกวันที่ก่อน)'; return validate(); }
+  $('spotHint').textContent = '(กำลังโหลด...)';
+  const r = await fetch(`/api/availability?check_in=${$('in').value}&check_out=${$('out').value}`);
+  const d = await r.json();
+  if (!r.ok) { $('spotHint').textContent = d.error || ''; return; }
+  $('spotHint').textContent = d.spots.length ? `(ว่าง ${d.spots.length} จุด)` : '(ไม่มีจุดว่างในช่วงนี้)';
+  d.spots.forEach((s) => {
+    const b = document.createElement('div');
+    b.className = 'spot'; b.textContent = s.name;
+    b.onclick = () => {
+      selected = s.id;
+      document.querySelectorAll('.spot').forEach((x) => x.classList.remove('sel'));
+      b.classList.add('sel'); validate();
+    };
+    $('spots').appendChild(b);
+  });
+  validate();
+}
+
+function onDates() {
+  if ($('in').value) {
+    $('out').min = addDays($('in').value, 1);
+    if (!$('out').value || $('out').value <= $('in').value) $('out').value = addDays($('in').value, 1);
+  }
+  refreshPrice(); loadSpots();
+}
+
+async function submit() {
+  $('submit').disabled = true; $('err').textContent = '';
+  try {
+    const r = await fetch('/api/book', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        accessToken, spot_id: selected,
+        name: $('name').value, phone: $('phone').value, address: $('address').value,
+        check_in: $('in').value, check_out: $('out').value, guests: Number($('guests').value),
+      }),
+    });
+    const d = await r.json();
+    if (!r.ok) {
+      $('err').textContent = d.error || 'เกิดข้อผิดพลาด';
+      if (r.status === 409) loadSpots();
+      return validate();
+    }
+    $('form').style.display = 'none';
+    $('result').style.display = 'block';
+    $('summary').textContent = `จุด ${d.booking.spot_name} | ${d.booking.guests} คน | ${d.booking.check_in} ถึง ${d.booking.check_out}`;
+    $('amount').textContent = `ยอดชำระ ${fmt(d.booking.total)} บาท`;
+    $('qr').src = d.qr;
+    $('hold').textContent = d.hold_minutes;
+    window.scrollTo(0, 0);
+  } catch (e) {
+    $('err').textContent = 'เชื่อมต่อไม่ได้ กรุณาลองใหม่'; validate();
+  }
+}
+
+(async () => {
+  cfg = await (await fetch('/api/config')).json();
+  await liff.init({ liffId: cfg.liffId });
+  if (!liff.isLoggedIn()) { liff.login(); return; }
+  accessToken = liff.getAccessToken();
+  $('in').min = cfg.today;
+  ['in', 'out'].forEach((id) => $(id).addEventListener('change', onDates));
+  $('guests').addEventListener('change', refreshPrice);
+  ['name', 'phone', 'address'].forEach((id) => $(id).addEventListener('input', validate));
+  $('submit').addEventListener('click', submit);
+  $('close').addEventListener('click', () => liff.closeWindow());
+  refreshPrice();
+})();
+</script>
+</body>
+</html>
