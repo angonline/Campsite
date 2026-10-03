@@ -3,7 +3,7 @@ import QRCode from 'qrcode';
 import generatePayload from 'promptpay-qr';
 
 const MAX_NIGHTS = 14;
-const HOLD_MINUTES = 60; // จองแล้วไม่จ่ายภายในกี่นาทีให้ปล่อยจุดคืน
+const HOLD_MINUTES = 20; // จองแล้วไม่จ่ายภายในกี่นาทีให้ปล่อยจุดคืน
 
 const todayTH = () =>
   new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });

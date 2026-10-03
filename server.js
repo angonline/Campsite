@@ -97,7 +97,7 @@ app.get('/cron/reminders', async (req, res) => {
     .from('bookings')
     .update({ status: 'cancelled' })
     .eq('status', 'pending_payment')
-    .lt('created_at', new Date(Date.now() - 60 * 60 * 1000).toISOString());
+    .lt('created_at', new Date(Date.now() - 20 * 60 * 1000).toISOString());
   res.json({ sent });
 });
 
