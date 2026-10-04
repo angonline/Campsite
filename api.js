@@ -56,6 +56,7 @@ export function apiRouter({ supabase, client, notifyAdminSlip }) {
     check_out: b.check_out,
     guests: b.guests,
     total: b.total_price,
+    code: b.booking_code || null,
   });
 
   // ตรวจข้อมูลฟอร์ม (ใช้ร่วมกันทั้ง LINE และเว็บ)
@@ -118,7 +119,15 @@ export function apiRouter({ supabase, client, notifyAdminSlip }) {
   r.get('/config', async (_req, res) => {
     const { data } = await supabase.from('settings').select('key,value');
     const s = Object.fromEntries((data || []).map((x) => [x.key, x.value]));
-    res.json({ liffId: process.env.LIFF_ID, today: todayTH(), ...s });
+    res.json({
+      liffId: process.env.LIFF_ID,
+      today: todayTH(),
+      contact: {
+        phone: process.env.CONTACT_PHONE || '081 391 1540',
+        line: process.env.CONTACT_LINE || '@JTGROUP',
+      },
+      ...s,
+    });
   });
 
   // จุดที่ว่างตามช่วงวันที่

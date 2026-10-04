@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import express from 'express';
+import { randomInt } from 'node:crypto';
 import * as line from '@line/bot-sdk';
 import { createClient } from '@supabase/supabase-js';
 import { apiRouter } from './api.js';
@@ -53,6 +54,28 @@ const STATUS_TH = {
   cancelled: 'ยกเลิกแล้ว',
 };
 const ACTIVE = ['pending_payment', 'awaiting_confirm', 'confirmed'];
+const CONTACT_PHONE = process.env.CONTACT_PHONE || '081 391 1540';
+const CONTACT_LINE = process.env.CONTACT_LINE || '@JTGROUP';
+const CONTACT_TEXT = `ติดต่อ: โทร ${CONTACT_PHONE} | LINE ${CONTACT_LINE}`;
+
+// รหัสจอง 6 ตัว ไม่มีตัวที่สับสนง่าย (0/O, 1/I)
+const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const genCode = () =>
+  Array.from({ length: 6 }, () => CODE_CHARS[randomInt(CODE_CHARS.length)]).join('');
+async function assignCode(id) {
+  for (let i = 0; i < 6; i++) {
+    const { error } = await supabase
+      .from('bookings')
+      .update({ booking_code: genCode() })
+      .eq('id', id)
+      .is('booking_code', null);
+    if (!error) break;
+    if (error.code !== '23505') throw error;
+  }
+  const { data } = await supabase.from('bookings').select('booking_code').eq('id', id).single();
+  return data?.booking_code;
+}
+
 const NO_LINE_NOTE = (b) => `\n(ลูกค้าจองผ่านเว็บ ไม่มี LINE โปรดแจ้งผลทางโทร ${b.phone})`;
 async function notifyCustomer(booking, messages) {
   if (!booking.line_user_id) return false;
@@ -88,7 +111,9 @@ app.get('/cron/reminders', async (req, res) => {
         messages: [
           text(
             `🏕 แจ้งเตือนการเข้าพัก\nพรุ่งนี้ (${b.check_in}) คุณเข้าพักที่จุด ${b.spots.name}\n` +
-              `ถึง ${b.check_out} | ${b.guests} คน\nแล้วพบกันครับ`
+              `ถึง ${b.check_out} | ${b.guests} คน\n` +
+              (b.booking_code ? `รหัสจอง: ${b.booking_code} (แจ้งเจ้าหน้าที่ตอนเข้าพัก)\n` : '') +
+              `แล้วพบกันครับ`
           ),
         ],
       });
@@ -146,6 +171,9 @@ async function handleText(event) {
       ],
     });
   }
+
+  const codeMatch = event.message.text.trim().match(/^รหัส\s*([A-Za-z0-9]{4,10})$/);
+  if (codeMatch) return lookupCode(event, codeMatch[1].toUpperCase());
 
   if (msg === 'การจองของฉัน') return myBookings(event);
   if (msg === 'ยกเลิก') return cancelMenu(event);
@@ -274,7 +302,7 @@ async function myBookings(event) {
     return reply(event, [text('ไม่พบการจองที่ใช้งานอยู่ พิมพ์ "จอง" เพื่อจองใหม่ครับ')]);
   const lines = data.map(
     (b) =>
-      `• จุด ${b.spots.name} | ${b.guests} คน\n  ${b.check_in} ถึง ${b.check_out} | ${baht(b.total_price)} บาท\n  สถานะ: ${STATUS_TH[b.status]}`
+      `• จุด ${b.spots.name} | ${b.guests} คน\n  ${b.check_in} ถึง ${b.check_out} | ${baht(b.total_price)} บาท\n  สถานะ: ${STATUS_TH[b.status]}${b.booking_code ? `\n  รหัสจอง: ${b.booking_code}` : ''}`
   );
   return reply(event, [
     text('การจองของคุณ\n\n' + lines.join('\n\n') + '\n\nพิมพ์ "ยกเลิก" หากต้องการยกเลิก'),
@@ -369,6 +397,25 @@ async function handleCustomerCancel(event, action, id) {
   }
 }
 
+// ---------- แอดมิน: ตรวจรหัสจองตอนลูกค้าเข้าพัก (พิมพ์ "รหัส K7M2QX") ----------
+async function lookupCode(event, code) {
+  if (!ADMIN_USERS.includes(event.source.userId))
+    return reply(event, [text('คำสั่งนี้สำหรับแอดมินเท่านั้นครับ')]);
+  const { data: b } = await supabase
+    .from('bookings')
+    .select('*, spots(name)')
+    .eq('booking_code', code)
+    .maybeSingle();
+  if (!b) return reply(event, [text(`ไม่พบรหัส ${code}`)]);
+  return reply(event, [
+    text(
+      `รหัส ${code}\nสถานะ: ${STATUS_TH[b.status]}\n` +
+        `จุด ${b.spots.name} | ${b.guests} คน\n${b.check_in} ถึง ${b.check_out}\n` +
+        `${b.customer_name} | ${b.phone}\nยอด ${baht(b.total_price)} บาท`
+    ),
+  ]);
+}
+
 // ---------- แอดมิน: สรุปวันนี้ ----------
 async function dailySummary(event) {
   if (!ADMIN_USERS.includes(event.source.userId))
@@ -401,7 +448,7 @@ async function dailySummary(event) {
   const occupied = new Set((staying || []).map((b) => b.spot_id)).size;
   const lines = (staying || []).map(
     (b) =>
-      `• ${b.spots.name} | ${b.customer_name} | ${b.guests} คน | ${b.phone}\n  ออก ${b.check_out}${b.check_in === today ? ' (เข้าวันนี้)' : ''}`
+      `• ${b.spots.name} | ${b.customer_name} | ${b.guests} คน | ${b.phone}\n  รหัส ${b.booking_code || '-'} | ออก ${b.check_out}${b.check_in === today ? ' (เข้าวันนี้)' : ''}`
   );
 
   return reply(event, [
@@ -463,10 +510,11 @@ async function handlePostback(event) {
       confirmed_at: confirmed ? new Date().toISOString() : null,
     })
     .eq('id', id);
+  const code = confirmed ? await assignCode(id) : null;
 
   await reply(event, [
     text(
-      `${confirmed ? 'ยืนยัน' : 'ปฏิเสธ'}การจองของ ${booking.customer_name} แล้ว` +
+      `${confirmed ? 'ยืนยัน' : 'ปฏิเสธ'}การจองของ ${booking.customer_name} แล้ว${code ? ` (รหัสจอง ${code})` : ''}` +
         (booking.line_user_id ? '' : NO_LINE_NOTE(booking))
     ),
   ]);
@@ -475,8 +523,8 @@ async function handlePostback(event) {
   await notifyCustomer(booking, [
     text(
       confirmed
-        ? `✅ ยืนยันการจองแล้ว\nจุด ${booking.spots?.name}\n${booking.check_in} ถึง ${booking.check_out}\nขอบคุณที่ใช้บริการครับ`
-        : '❌ ขออภัย การจองไม่ผ่านการยืนยัน (สลิปไม่ถูกต้องหรือยอดไม่ตรง) กรุณาติดต่อแอดมินครับ'
+        ? `✅ ยืนยันการจองแล้ว\nรหัสจอง: ${code}\nจุด ${booking.spots?.name} | ${booking.guests} คน\n${booking.check_in} ถึง ${booking.check_out}\n\nวันเข้าพัก กรุณาแจ้งรหัสจองนี้กับเจ้าหน้าที่ (พร้อมเบอร์โทรที่ใช้จอง)\n${CONTACT_TEXT}`
+        : `❌ ขออภัย การจองไม่ผ่านการยืนยัน (สลิปไม่ถูกต้องหรือยอดไม่ตรง) กรุณาติดต่อแอดมินครับ\n${CONTACT_TEXT}`
     ),
   ]);
 }
