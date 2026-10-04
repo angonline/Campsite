@@ -26,14 +26,19 @@
   button.go:disabled { background: #b8c4bc; }
   .mapscroll { overflow: auto; border-radius: 10px; -webkit-overflow-scrolling: touch; }
   .mapbox { position: relative; width: 100%; }
-  .mapbox.zoom { width: 230%; }
+  .mapbox.zoom { width: 330%; }
+  .mapscroll.zoomed { max-height: 70vh; }
+  .mapbox:not(.zoom) .pin { pointer-events: none; }
+  .mapbox:not(.zoom) { cursor: zoom-in; }
   .mapbox img { width: 100%; display: block; }
-  .pin { position: absolute; width: 7%; aspect-ratio: 1; transform: translate(-50%, -50%); border-radius: 50%; border: 0; padding: 0; background: transparent; display: none; }
+  .pin { position: absolute; width: 2.6%; aspect-ratio: 1; transform: translate(-50%, -50%); border-radius: 50%; border: 0; padding: 0; background: transparent; display: none; }
   .pin.free { display: block; background: rgba(6,199,85,.30); border: 2px solid #06c755; }
   .pin.off { display: block; background: rgba(80,80,80,.62); border: 2px solid #aaa; pointer-events: none; }
   .pin.sel { background: rgba(6,199,85,.85); border: 3px solid #fff; box-shadow: 0 0 0 2px #06c755; }
   .mapcard .row2 { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; gap: 8px; }
   .mapcard .zoomBtn { border: 1px solid var(--line); background: var(--card); color: var(--fg); border-radius: 16px; padding: 6px 12px; font-size: 13px; }
+  .codebox { border: 2px dashed #1f7a4d; border-radius: 12px; padding: 12px; margin: 10px 0; }
+  .codebox .code { font-size: 34px; letter-spacing: 5px; font-weight: 700; color: #1f7a4d; margin: 4px 0; }
   .terms { font-size: 14px; line-height: 1.6; }
   .terms h2 { font-size: 15px; margin: 0 0 6px; }
   .terms ul { margin: 0; padding-left: 20px; }
@@ -63,12 +68,12 @@
 
     <div class="card mapcard">
       <label>แผนผังจุดกางเต็นท์</label>
-      <div class="mapscroll"><div class="mapbox" id="mapbox">
+      <div class="mapscroll" id="mapscroll"><div class="mapbox" id="mapbox">
         <img id="mapimg" src="map.jpg" alt="แผนผังจุดกางเต็นท์"
              onerror="if(!this.dataset.t){this.dataset.t=1;this.src='map.png'}else{this.closest('.card').style.display='none'}">
       </div></div>
       <div class="row2">
-        <div class="hint" id="mapHint">เลือกวันที่ก่อน แล้ว <b style="color:#06c755">วงกลมเขียว</b> = ว่าง แตะเพื่อเลือก (สีเทา = ไม่ว่าง)</div>
+        <div class="hint" id="mapHint">เลือกวันที่ก่อน แล้วแตะแผนผังเพื่อขยาย <b style="color:#06c755">วงกลมเขียว</b> = ว่าง แตะเพื่อเลือก (สีเทา = ไม่ว่าง) หรือเลือกจากรายการด้านล่างก็ได้</div>
         <button type="button" class="zoomBtn" id="zoomBtn">ขยาย</button>
       </div>
     </div>
@@ -111,6 +116,11 @@
     <div class="ok" id="statusText"></div>
     <div id="summary" class="hint"></div>
     <p><b id="amount"></b></p>
+    <div id="codeBox" class="codebox" style="display:none">
+      <div class="hint">รหัสจองของคุณ</div>
+      <div class="code" id="codeText"></div>
+      <div class="hint">กรุณาแจ้งรหัสนี้กับเจ้าหน้าที่ในวันเข้าพัก พร้อมเบอร์โทรที่ใช้จอง (แคปหน้าจอไว้ได้)</div>
+    </div>
     <div id="payBox">
       <img id="qr" alt="QR ชำระเงิน">
       <p class="hint">สแกนจ่ายผ่านแอปธนาคาร แล้วอัปโหลดรูปสลิปด้านล่าง<br>ภายใน <span id="hold"></span> นาที มิฉะนั้นระบบจะปล่อยจุดคืน</p>
@@ -119,6 +129,7 @@
       <div class="err" id="slipMsg"></div>
     </div>
     <p class="hint">เก็บลิงก์ในแถบที่อยู่ของหน้านี้ไว้ หรือแคปหน้าจอ เพื่อกลับมาดูสถานะการจองได้</p>
+    <p class="hint" id="contact"></p>
     <button class="go" id="again" style="background:#8a978f">จองใหม่</button>
   </div>
 </div>
@@ -140,11 +151,12 @@ function price() {
 // ตำแหน่งจุดบนรูป map.jpg (พิกเซลของรูปขนาด 1104x608)
 const MAP_W = 1104, MAP_H = 608;
 const PINS = {
-  A01:[335,347],A02:[396,342],A03:[448,322],A04:[507,310],A05:[383,431],
-  A06:[448,442],A07:[512,442],A08:[572,442],A09:[572,384],A10:[572,341],
-  A11:[570,294],A12:[650,441],A13:[653,388],A14:[653,341],A15:[652,294],
-  A16:[652,247],A17:[897,439],A18:[897,385],A19:[897,330],A20:[898,278],
-  A21:[898,224],A22:[896,171],A23:[976,416],A24:[976,360],A25:[976,303],
+  A01:[361,338],A02:[409,324],A03:[456,306],A04:[508,289],A05:[370,421],
+  A06:[426,422],A07:[512,422],A08:[511,478],A09:[565,422],A10:[566,381],
+  A11:[563,342],A12:[562,302],A13:[563,262],A14:[662,440],A15:[728,440],
+  A16:[655,354],A17:[655,324],A18:[654,293],A19:[654,263],A20:[653,231],
+  A21:[886,439],A22:[887,383],A23:[887,329],A24:[888,275],A25:[888,222],
+  A26:[888,169],A27:[969,414],A28:[969,358],A29:[969,301],A30:[965,196],
 };
 const pinEls = {};
 let nameToId = {};
@@ -176,6 +188,23 @@ function choose(id) {
     if (nameToId[name]) p.className = 'pin ' + (nameToId[name] === id ? 'free sel' : 'free');
   });
   validate();
+}
+
+function fillContact() {
+  const c = cfg.contact || {};
+  const el = $('contact');
+  el.textContent = 'ติดต่อสอบถาม: ';
+  if (c.phone) {
+    const a = document.createElement('a');
+    a.href = 'tel:' + c.phone.replace(/\s/g, ''); a.textContent = c.phone;
+    el.appendChild(a);
+  }
+  if (c.line) {
+    el.append(' | LINE ');
+    const a = document.createElement('a');
+    a.href = 'https://line.me/R/ti/p/' + encodeURIComponent(c.line); a.textContent = c.line;
+    el.appendChild(a);
+  }
 }
 
 function refreshPrice() {
@@ -255,6 +284,9 @@ function showBooking(d) {
   $('hold').textContent = d.hold_minutes;
   const status = d.status || 'pending_payment';
   $('statusText').textContent = STATUS_TH[status] || status;
+  const showCode = status === 'confirmed' && d.booking.code;
+  $('codeBox').style.display = showCode ? 'block' : 'none';
+  if (showCode) $('codeText').textContent = d.booking.code;
   const pending = status === 'pending_payment';
   $('payBox').style.display = pending ? 'block' : 'none';
   if (pending && d.qr) $('qr').src = d.qr;
@@ -321,14 +353,27 @@ async function sendSlip() {
 (async () => {
   cfg = await (await fetch('/api/config')).json();
   $('in').min = cfg.today;
+  fillContact();
   ['in', 'out'].forEach((id) => $(id).addEventListener('change', onDates));
   $('guests').addEventListener('change', refreshPrice);
   ['name', 'phone', 'address'].forEach((id) => $(id).addEventListener('input', validate));
   $('agree').addEventListener('change', validate);
   createPins();
-  $('zoomBtn').addEventListener('click', () => {
-    const z = $('mapbox').classList.toggle('zoom');
-    $('zoomBtn').textContent = z ? 'ย่อ' : 'ขยาย';
+  const setZoom = (on, fx = 0.5, fy = 0.5) => {
+    $('mapbox').classList.toggle('zoom', on);
+    $('mapscroll').classList.toggle('zoomed', on);
+    $('zoomBtn').textContent = on ? 'ย่อ' : 'ขยาย';
+    if (on) {
+      const sc = $('mapscroll');
+      sc.scrollLeft = fx * sc.scrollWidth - sc.clientWidth / 2;
+      sc.scrollTop = fy * sc.scrollHeight - sc.clientHeight / 2;
+    }
+  };
+  $('zoomBtn').addEventListener('click', () => setZoom(!$('mapbox').classList.contains('zoom')));
+  $('mapbox').addEventListener('click', (e) => {
+    if ($('mapbox').classList.contains('zoom')) return;
+    const r = $('mapbox').getBoundingClientRect();
+    setZoom(true, (e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
   });
   $('submit').addEventListener('click', submit);
   $('again').addEventListener('click', () => { location.href = location.pathname; });
