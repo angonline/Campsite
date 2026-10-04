@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>จองที่กางเต็นท์ (เว็บ)</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, "Sarabun", "Noto Sans Thai", sans-serif; background: #f4f6f4; color: #1f2a24; }
+  .wrap { max-width: 480px; margin: 0 auto; padding: 16px 16px 40px; }
+  h1 { font-size: 20px; margin: 4px 0 14px; }
+  .card { background: #fff; border-radius: 14px; padding: 14px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  label { display: block; font-size: 13px; color: #55645b; margin: 10px 0 4px; }
+  label:first-child { margin-top: 0; }
+  input, select, textarea { width: 100%; padding: 11px; font-size: 16px; border: 1px solid #cfd8d2; border-radius: 10px; background: #fff; font-family: inherit; }
+  textarea { resize: vertical; min-height: 70px; }
+  .row { display: flex; gap: 10px; }
+  .row > div { flex: 1; }
+  .grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+  .spot { padding: 10px 0; border: 1px solid #cfd8d2; border-radius: 10px; background: #fff; font-size: 14px; text-align: center; cursor: pointer; }
+  .spot.sel { background: #1f7a4d; color: #fff; border-color: #1f7a4d; }
+  .hint { font-size: 13px; color: #6b7a71; }
+  .price { font-size: 18px; font-weight: 700; color: #1f7a4d; }
+  .err { color: #c0392b; font-size: 14px; margin: 8px 0 0; min-height: 18px; }
+  button.go { width: 100%; padding: 14px; font-size: 17px; font-weight: 600; border: 0; border-radius: 12px; background: #06c755; color: #fff; }
+  button.go:disabled { background: #b8c4bc; }
+  .mapscroll { overflow: auto; border-radius: 10px; -webkit-overflow-scrolling: touch; }
+  .mapbox { position: relative; width: 100%; }
+  .mapbox.zoom { width: 230%; }
+  .mapbox img { width: 100%; display: block; }
+  .pin { position: absolute; width: 7%; aspect-ratio: 1; transform: translate(-50%, -50%); border-radius: 50%; border: 0; padding: 0; background: transparent; display: none; }
+  .pin.free { display: block; background: rgba(6,199,85,.30); border: 2px solid #06c755; }
+  .pin.off { display: block; background: rgba(80,80,80,.62); border: 2px solid #aaa; pointer-events: none; }
+  .pin.sel { background: rgba(6,199,85,.85); border: 3px solid #fff; box-shadow: 0 0 0 2px #06c755; }
+  .mapcard .row2 { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; gap: 8px; }
+  .mapcard .zoomBtn { border: 1px solid var(--line); background: var(--card); color: var(--fg); border-radius: 16px; padding: 6px 12px; font-size: 13px; }
+  .terms { font-size: 14px; line-height: 1.6; }
+  .terms h2 { font-size: 15px; margin: 0 0 6px; }
+  .terms ul { margin: 0; padding-left: 20px; }
+  .agree { display: flex; gap: 10px; align-items: flex-start; margin-top: 12px; font-size: 15px; color: #1f2a24; }
+  .agree input { width: 22px; height: 22px; margin: 0; flex: none; }
+  #result { display: none; text-align: center; }
+  #result img { width: 100%; max-width: 300px; }
+  .ok { font-size: 20px; font-weight: 700; color: #1f7a4d; margin-bottom: 6px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>⛺ จองที่กางเต็นท์</h1>
+
+  <div id="form">
+    <div class="card">
+      <div class="row">
+        <div><label>วันเข้าพัก</label><input type="date" id="in"></div>
+        <div><label>วันออก</label><input type="date" id="out"></div>
+      </div>
+      <label>จำนวนคน (สูงสุด 4)</label>
+      <select id="guests">
+        <option value="1">1 คน</option><option value="2" selected>2 คน</option>
+        <option value="3">3 คน</option><option value="4">4 คน</option>
+      </select>
+    </div>
+
+    <div class="card mapcard">
+      <label>แผนผังจุดกางเต็นท์</label>
+      <div class="mapscroll"><div class="mapbox" id="mapbox">
+        <img id="mapimg" src="map.jpg" alt="แผนผังจุดกางเต็นท์"
+             onerror="if(!this.dataset.t){this.dataset.t=1;this.src='map.png'}else{this.closest('.card').style.display='none'}">
+      </div></div>
+      <div class="row2">
+        <div class="hint" id="mapHint">เลือกวันที่ก่อน แล้ว <b style="color:#06c755">วงกลมเขียว</b> = ว่าง แตะเพื่อเลือก (สีเทา = ไม่ว่าง)</div>
+        <button type="button" class="zoomBtn" id="zoomBtn">ขยาย</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <label>เลือกจุด <span class="hint" id="spotHint">(เลือกวันที่ก่อน)</span></label>
+      <div class="grid" id="spots"></div>
+    </div>
+
+    <div class="card">
+      <label>ชื่อผู้จอง</label><input id="name" autocomplete="name">
+      <label>เบอร์โทร</label><input id="phone" type="tel" inputmode="tel" autocomplete="tel">
+      <label>ที่อยู่</label><textarea id="address" autocomplete="street-address"></textarea>
+    </div>
+
+    <div class="card">
+      <div class="hint" id="priceNote"></div>
+      <div class="price" id="price">ยอดรวม 0 บาท</div>
+    </div>
+
+    <div class="card terms">
+      <h2>เงื่อนไขการจอง</h2>
+      <!-- แก้ข้อความในรายการด้านล่างนี้ได้เลย (เพิ่ม/ลบ <li> ได้) -->
+      <ul>
+        <li>ราคา 500 บาท/จุด/คืน รวมผู้พัก 2 คน เพิ่มคนละ 200 บาท/คืน (สูงสุด 4 คนต่อจุด)</li>
+        <li>เวลาเข้าพัก [ใส่เวลา] และเวลาออก [ใส่เวลา]</li>
+        <li>กรุณาชำระเงินและส่งสลิปภายใน 20 นาทีหลังจอง มิฉะนั้นระบบจะปล่อยจุดคืนอัตโนมัติ</li>
+        <li>การจองจะสมบูรณ์เมื่อแอดมินตรวจสอบและยืนยันแล้ว</li>
+        <li>การยกเลิกและคืนเงิน: [ใส่นโยบายของคุณ]</li>
+        <li>[เงื่อนไขอื่น ๆ เช่น กฎของสถานที่ สัตว์เลี้ยง เสียงดัง]</li>
+      </ul>
+      <label class="agree"><input type="checkbox" id="agree"><span>ข้าพเจ้าได้อ่านและยอมรับเงื่อนไขการจองข้างต้น</span></label>
+    </div>
+
+    <button class="go" id="submit" disabled>ยืนยันการจอง</button>
+    <div class="err" id="err"></div>
+  </div>
+
+  <div id="result" class="card">
+    <div class="ok" id="statusText"></div>
+    <div id="summary" class="hint"></div>
+    <p><b id="amount"></b></p>
+    <div id="payBox">
+      <img id="qr" alt="QR ชำระเงิน">
+      <p class="hint">สแกนจ่ายผ่านแอปธนาคาร แล้วอัปโหลดรูปสลิปด้านล่าง<br>ภายใน <span id="hold"></span> นาที มิฉะนั้นระบบจะปล่อยจุดคืน</p>
+      <input type="file" id="slip" accept="image/*">
+      <button class="go" id="sendSlip" style="margin-top:10px">ส่งสลิป</button>
+      <div class="err" id="slipMsg"></div>
+    </div>
+    <p class="hint">เก็บลิงก์ในแถบที่อยู่ของหน้านี้ไว้ หรือแคปหน้าจอ เพื่อกลับมาดูสถานะการจองได้</p>
+    <button class="go" id="again" style="background:#8a978f">จองใหม่</button>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let cfg, selected = null;
+
+const fmt = (n) => Number(n).toLocaleString('th-TH');
+const addDays = (s, d) => { const x = new Date(s); x.setDate(x.getDate() + d); return x.toISOString().slice(0, 10); };
+const nights = () => $('in').value && $('out').value ? Math.round((new Date($('out').value) - new Date($('in').value)) / 86400000) : 0;
+
+function price() {
+  const n = nights(), g = Number($('guests').value);
+  const perNight = cfg.base_price + Math.max(0, g - cfg.base_guests) * cfg.extra_person_price;
+  return { n, perNight, total: n > 0 ? n * perNight : 0 };
+}
+
+// ตำแหน่งจุดบนรูป map.jpg (พิกเซลของรูปขนาด 1104x608)
+const MAP_W = 1104, MAP_H = 608;
+const PINS = {
+  A01:[335,347],A02:[396,342],A03:[448,322],A04:[507,310],A05:[383,431],
+  A06:[448,442],A07:[512,442],A08:[572,442],A09:[572,384],A10:[572,341],
+  A11:[570,294],A12:[650,441],A13:[653,388],A14:[653,341],A15:[652,294],
+  A16:[652,247],A17:[897,439],A18:[897,385],A19:[897,330],A20:[898,278],
+  A21:[898,224],A22:[896,171],A23:[976,416],A24:[976,360],A25:[976,303],
+};
+const pinEls = {};
+let nameToId = {};
+
+function createPins() {
+  Object.entries(PINS).forEach(([name, [x, y]]) => {
+    const p = document.createElement('button');
+    p.type = 'button'; p.className = 'pin'; p.setAttribute('aria-label', name);
+    p.style.left = (x / MAP_W * 100) + '%';
+    p.style.top = (y / MAP_H * 100) + '%';
+    p.onclick = () => { if (nameToId[name]) choose(nameToId[name]); };
+    $('mapbox').appendChild(p);
+    pinEls[name] = p;
+  });
+}
+
+function updatePins(spots) {
+  nameToId = {};
+  (spots || []).forEach((s) => { nameToId[s.name] = s.id; });
+  Object.entries(pinEls).forEach(([name, p]) => {
+    p.className = 'pin' + (spots ? (nameToId[name] ? ' free' : ' off') : '');
+  });
+}
+
+function choose(id) {
+  selected = id;
+  document.querySelectorAll('.spot').forEach((x) => x.classList.toggle('sel', Number(x.dataset.id) === id));
+  Object.entries(pinEls).forEach(([name, p]) => {
+    if (nameToId[name]) p.className = 'pin ' + (nameToId[name] === id ? 'free sel' : 'free');
+  });
+  validate();
+}
+
+function refreshPrice() {
+  const p = price();
+  $('priceNote').textContent = p.n > 0 ? `${fmt(p.perNight)} บาท/คืน × ${p.n} คืน` : 'เลือกวันที่เพื่อดูราคา';
+  $('price').textContent = `ยอดรวม ${fmt(p.total)} บาท`;
+  validate();
+}
+
+function validate() {
+  const ok = selected && nights() > 0 && $('name').value.trim() &&
+    /^0\d{8,9}$/.test($('phone').value.replace(/[-\s]/g, '')) && $('address').value.trim().length >= 5 && $('agree').checked;
+  $('submit').disabled = !ok;
+}
+
+async function loadSpots() {
+  selected = null;
+  $('spots').innerHTML = '';
+  updatePins(null);
+  if (nights() < 1) { $('spotHint').textContent = '(เลือกวันที่ก่อน)'; return validate(); }
+  $('spotHint').textContent = '(กำลังโหลด...)';
+  const r = await fetch(`/api/availability?check_in=${$('in').value}&check_out=${$('out').value}`);
+  const d = await r.json();
+  if (!r.ok) { $('spotHint').textContent = d.error || ''; return; }
+  $('spotHint').textContent = d.spots.length ? `(ว่าง ${d.spots.length} จุด)` : '(ไม่มีจุดว่างในช่วงนี้)';
+  d.spots.forEach((s) => {
+    const b = document.createElement('div');
+    b.className = 'spot'; b.textContent = s.name;
+    b.dataset.id = s.id;
+    b.onclick = () => choose(s.id);
+    $('spots').appendChild(b);
+  });
+  updatePins(d.spots);
+  validate();
+}
+
+function onDates() {
+  if ($('in').value) {
+    $('out').min = addDays($('in').value, 1);
+    if (!$('out').value || $('out').value <= $('in').value) $('out').value = addDays($('in').value, 1);
+  }
+  refreshPrice(); loadSpots();
+}
+
+const STATUS_TH = {
+  pending_payment: 'รับจองแล้ว รอชำระเงิน',
+  awaiting_confirm: 'ส่งสลิปแล้ว รอแอดมินตรวจสอบ',
+  confirmed: '✅ ยืนยันการจองแล้ว',
+  rejected: '❌ การจองไม่ผ่านการยืนยัน กรุณาติดต่อแอดมิน',
+  cancelled: 'การจองถูกยกเลิกหรือหมดเวลา',
+};
+let bookingId = null, pollTimer = null;
+
+function compress(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      const k = Math.min(1, 1280 / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      resolve(c.toDataURL('image/jpeg', 0.85));
+    };
+    img.onerror = () => reject(new Error('read'));
+    img.src = url;
+  });
+}
+
+function showBooking(d) {
+  bookingId = d.booking.id;
+  $('form').style.display = 'none';
+  $('result').style.display = 'block';
+  $('summary').textContent = `จุด ${d.booking.spot_name} | ${d.booking.guests} คน | ${d.booking.check_in} ถึง ${d.booking.check_out}`;
+  $('amount').textContent = `ยอดชำระ ${fmt(d.booking.total)} บาท`;
+  $('hold').textContent = d.hold_minutes;
+  const status = d.status || 'pending_payment';
+  $('statusText').textContent = STATUS_TH[status] || status;
+  const pending = status === 'pending_payment';
+  $('payBox').style.display = pending ? 'block' : 'none';
+  if (pending && d.qr) $('qr').src = d.qr;
+  // เช็กสถานะอัตโนมัติระหว่างรอแอดมิน
+  if (status === 'awaiting_confirm' && !pollTimer) pollTimer = setInterval(refreshStatus, 15000);
+  if (status !== 'awaiting_confirm' && pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  window.scrollTo(0, 0);
+}
+
+async function refreshStatus() {
+  try {
+    const r = await fetch('/api/web/status?id=' + encodeURIComponent(bookingId));
+    const d = await r.json();
+    if (!r.ok) { $('statusText').textContent = d.error || 'ไม่พบการจอง'; return; }
+    showBooking(d);
+  } catch (e) { /* ลองใหม่รอบถัดไป */ }
+}
+
+async function submit() {
+  $('submit').disabled = true; $('err').textContent = '';
+  try {
+    const r = await fetch('/api/web/book', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        spot_id: selected,
+        name: $('name').value, phone: $('phone').value, address: $('address').value,
+        check_in: $('in').value, check_out: $('out').value, guests: Number($('guests').value),
+      }),
+    });
+    const d = await r.json();
+    if (!r.ok) {
+      $('err').textContent = d.error || 'เกิดข้อผิดพลาด';
+      if (r.status === 409) loadSpots();
+      return validate();
+    }
+    history.replaceState(null, '', '?b=' + d.booking.id);
+    showBooking({ booking: d.booking, status: 'pending_payment', qr: d.qr, hold_minutes: d.hold_minutes });
+  } catch (e) {
+    $('err').textContent = 'เชื่อมต่อไม่ได้ กรุณาลองใหม่'; validate();
+  }
+}
+
+async function sendSlip() {
+  const f = $('slip').files[0];
+  if (!f) { $('slipMsg').textContent = 'กรุณาเลือกรูปสลิปก่อน'; return; }
+  $('sendSlip').disabled = true; $('slipMsg').textContent = 'กำลังส่ง...';
+  try {
+    const image = await compress(f);
+    const r = await fetch('/api/web/slip', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: bookingId, image }),
+    });
+    const d = await r.json();
+    if (!r.ok) { $('slipMsg').textContent = d.error || 'ส่งไม่สำเร็จ'; $('sendSlip').disabled = false; return; }
+    $('slipMsg').textContent = '';
+    await refreshStatus();
+  } catch (e) {
+    $('slipMsg').textContent = 'ส่งไม่สำเร็จ กรุณาลองใหม่'; $('sendSlip').disabled = false;
+  }
+}
+
+(async () => {
+  cfg = await (await fetch('/api/config')).json();
+  $('in').min = cfg.today;
+  ['in', 'out'].forEach((id) => $(id).addEventListener('change', onDates));
+  $('guests').addEventListener('change', refreshPrice);
+  ['name', 'phone', 'address'].forEach((id) => $(id).addEventListener('input', validate));
+  $('agree').addEventListener('change', validate);
+  createPins();
+  $('zoomBtn').addEventListener('click', () => {
+    const z = $('mapbox').classList.toggle('zoom');
+    $('zoomBtn').textContent = z ? 'ย่อ' : 'ขยาย';
+  });
+  $('submit').addEventListener('click', submit);
+  $('again').addEventListener('click', () => { location.href = location.pathname; });
+  $('sendSlip').addEventListener('click', sendSlip);
+  refreshPrice();
+  const rid = new URLSearchParams(location.search).get('b');
+  if (rid) { bookingId = rid; refreshStatus(); }
+})();
+</script>
+</body>
+</html>
