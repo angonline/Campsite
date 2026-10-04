@@ -43,6 +43,17 @@ const safeEqual = (a, b) =>
     crypto.createHash('sha256').update(String(b)).digest()
   );
 
+const thaiDate = (d) =>
+  new Date(d + 'T00:00:00Z').toLocaleDateString('th-TH', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+
+// คืนที่เข้าพักคือวันเช็กอินจนถึงก่อนวันเช็กเอาท์ (ไม่นับวันออก)
+function closedReason(d, rules) {
+  const hit = rules.ranges.find((x) => d >= x.start_date && d <= x.end_date);
+  if (hit) return hit.reason || 'ปิดรับจอง';
+  if (rules.weekdays.includes(new Date(d + 'T00:00:00Z').getUTCDay())) return 'ไม่เปิดรับจองวันนี้';
+  return null;
+}
+
 const bad = (res, msg) => res.status(400).json({ error: msg });
 
 function validRange(check_in, check_out) {
@@ -74,6 +85,32 @@ export function apiRouter({ supabase, client, notifyAdminSlip, adminActions }) {
       .update({ status: 'cancelled' })
       .eq('status', 'pending_payment')
       .lt('created_at', cutoff);
+  }
+
+  // กฎวันปิดรับจอง (ถ้ายังไม่ได้รัน migration จะถือว่าไม่มีกฎ ไม่ทำให้ระบบพัง)
+  async function loadRules() {
+    const [cw, cd] = await Promise.all([
+      supabase.from('site_config').select('value').eq('key', 'closed_weekdays').maybeSingle(),
+      supabase
+        .from('closed_dates')
+        .select('id,start_date,end_date,reason')
+        .gte('end_date', todayTH())
+        .order('start_date'),
+    ]);
+    const weekdays = String(cw.data?.value || '')
+      .split(',')
+      .filter((x) => x !== '')
+      .map(Number)
+      .filter((n) => n >= 0 && n <= 6);
+    return { weekdays, ranges: cd.data || [] };
+  }
+  async function checkOpen(check_in, check_out) {
+    const rules = await loadRules();
+    for (let d = check_in; d < check_out; d = addDay(d, 1)) {
+      const why = closedReason(d, rules);
+      if (why) return `ไม่รับจองคืนวันที่ ${thaiDate(d)} (${why})`;
+    }
+    return null;
   }
 
   const makeQr = (total) =>
@@ -152,6 +189,7 @@ export function apiRouter({ supabase, client, notifyAdminSlip, adminActions }) {
   r.get('/config', async (_req, res) => {
     const { data } = await supabase.from('settings').select('key,value');
     const s = Object.fromEntries((data || []).map((x) => [x.key, x.value]));
+    const rules = await loadRules();
     res.json({
       liffId: process.env.LIFF_ID,
       today: todayTH(),
@@ -159,6 +197,8 @@ export function apiRouter({ supabase, client, notifyAdminSlip, adminActions }) {
         phone: process.env.CONTACT_PHONE || '081 391 1540',
         line: process.env.CONTACT_LINE || '@JTGROUP',
       },
+      closed_weekdays: rules.weekdays,
+      closed_ranges: rules.ranges,
       ...s,
     });
   });
@@ -168,6 +208,8 @@ export function apiRouter({ supabase, client, notifyAdminSlip, adminActions }) {
     const { check_in, check_out } = req.query;
     if (!validRange(check_in, check_out))
       return res.status(400).json({ error: 'วันที่ไม่ถูกต้อง' });
+    const closed = await checkOpen(check_in, check_out);
+    if (closed) return bad(res, closed);
     await cleanup();
     const { data, error } = await supabase.rpc('available_spots', {
       p_check_in: check_in,
@@ -183,6 +225,8 @@ export function apiRouter({ supabase, client, notifyAdminSlip, adminActions }) {
       const b = req.body || {};
       const p = parseForm(b);
       if (p.error) return bad(res, p.error);
+      const closed = await checkOpen(p.data.check_in, p.data.check_out);
+      if (closed) return bad(res, closed);
 
       // ยืนยันตัวตนผู้จองจาก LINE
       const pr = await fetch('https://api.line.me/v2/profile', {
@@ -236,6 +280,8 @@ export function apiRouter({ supabase, client, notifyAdminSlip, adminActions }) {
         return res.status(429).json({ error: 'ทำรายการบ่อยเกินไป กรุณารอสักครู่แล้วลองใหม่' });
       const p = parseForm(req.body || {});
       if (p.error) return bad(res, p.error);
+      const closed = await checkOpen(p.data.check_in, p.data.check_out);
+      if (closed) return bad(res, closed);
 
       const out = await createBooking(p.data, null, 'web');
       if (out.conflict) return res.status(409).json({ error: conflictMsg });
@@ -435,6 +481,48 @@ export function apiRouter({ supabase, client, notifyAdminSlip, adminActions }) {
       console.error('admin action error', e);
       res.status(500).json({ error: 'ทำรายการไม่สำเร็จ' });
     }
+  });
+
+  // ---------- วันปิดรับจอง (แอดมินตั้งค่า) ----------
+  r.get('/admin/closures', adminAuth, async (_req, res) => {
+    const rules = await loadRules();
+    res.json({ weekdays: rules.weekdays, ranges: rules.ranges });
+  });
+
+  r.post('/admin/closures/weekdays', adminAuth, async (req, res) => {
+    const days = (Array.isArray(req.body?.weekdays) ? req.body.weekdays : [])
+      .map(Number)
+      .filter((n) => Number.isInteger(n) && n >= 0 && n <= 6);
+    const uniq = [...new Set(days)].sort();
+    if (uniq.length >= 7)
+      return bad(res, 'ปิดทุกวันไม่ได้ ถ้าต้องการปิดชั่วคราวให้เพิ่มช่วงวันปิดแทน');
+    const { error } = await supabase
+      .from('site_config')
+      .upsert({ key: 'closed_weekdays', value: uniq.join(',') });
+    if (error)
+      return res.status(500).json({ error: 'บันทึกไม่สำเร็จ (ตรวจว่ารัน migration_closures.sql แล้ว)' });
+    res.json({ ok: true, weekdays: uniq });
+  });
+
+  r.post('/admin/closures/ranges', adminAuth, async (req, res) => {
+    const { start, end, reason } = req.body || {};
+    if (!isDate(start) || !isDate(end) || end < start) return bad(res, 'ช่วงวันที่ไม่ถูกต้อง');
+    const { error } = await supabase.from('closed_dates').insert({
+      start_date: start,
+      end_date: end,
+      reason: String(reason || '').trim().slice(0, 100) || null,
+    });
+    if (error)
+      return res.status(500).json({ error: 'บันทึกไม่สำเร็จ (ตรวจว่ารัน migration_closures.sql แล้ว)' });
+    res.json({ ok: true });
+  });
+
+  r.delete('/admin/closures/ranges/:id', adminAuth, async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) return bad(res, 'ไม่พบรายการ');
+    const { error } = await supabase.from('closed_dates').delete().eq('id', id);
+    if (error) return res.status(500).json({ error: 'ลบไม่สำเร็จ' });
+    res.json({ ok: true });
   });
 
   return r;
