@@ -53,11 +53,18 @@ const STATUS_TH = {
   cancelled: 'ยกเลิกแล้ว',
 };
 const ACTIVE = ['pending_payment', 'awaiting_confirm', 'confirmed'];
+const NO_LINE_NOTE = (b) => `\n(ลูกค้าจองผ่านเว็บ ไม่มี LINE โปรดแจ้งผลทางโทร ${b.phone})`;
+async function notifyCustomer(booking, messages) {
+  if (!booking.line_user_id) return false;
+  await client.pushMessage({ to: booking.line_user_id, messages });
+  return true;
+}
 
 const app = express();
+app.set('trust proxy', 1);
 
 app.use(express.static('public'));
-app.use('/api', express.json(), apiRouter({ supabase, client }));
+app.use('/api', express.json({ limit: '4mb' }), apiRouter({ supabase, client, notifyAdminSlip }));
 
 app.get('/', (_req, res) => res.send('camp-bot is running'));
 
@@ -71,6 +78,7 @@ app.get('/cron/reminders', async (req, res) => {
     .select('*, spots(name)')
     .eq('status', 'confirmed')
     .eq('check_in', tomorrow)
+    .not('line_user_id', 'is', null)
     .is('reminded_at', null);
   let sent = 0;
   for (const b of data || []) {
@@ -217,32 +225,35 @@ async function handleSlip(event) {
     messages: [text('ได้รับสลิปแล้วครับ รอแอดมินตรวจสอบและยืนยันการจอง')],
   });
 
-  // แจ้งแอดมิน
-  if (ADMIN_GROUP_ID) {
-    await client.pushMessage({
-      to: ADMIN_GROUP_ID,
-      messages: [
-        { type: 'image', originalContentUrl: pub.publicUrl, previewImageUrl: pub.publicUrl },
-        {
-          type: 'template',
-          altText: 'มีการจองรอยืนยัน',
-          template: {
-            type: 'buttons',
-            text: summary(booking).slice(0, 160),
-            actions: [
-              { type: 'postback', label: 'ยืนยัน', data: `action=confirm&id=${booking.id}` },
-              { type: 'postback', label: 'ปฏิเสธ', data: `action=reject&id=${booking.id}` },
-            ],
-          },
+  await notifyAdminSlip(booking, pub.publicUrl);
+}
+
+// แจ้งแอดมินในกลุ่มพร้อมรูปสลิปและปุ่มยืนยัน/ปฏิเสธ (ใช้ร่วมกับการจองผ่านเว็บ)
+async function notifyAdminSlip(booking, slipUrl) {
+  if (!ADMIN_GROUP_ID) return;
+  await client.pushMessage({
+    to: ADMIN_GROUP_ID,
+    messages: [
+      { type: 'image', originalContentUrl: slipUrl, previewImageUrl: slipUrl },
+      {
+        type: 'template',
+        altText: 'มีการจองรอยืนยัน',
+        template: {
+          type: 'buttons',
+          text: summary(booking).slice(0, 160),
+          actions: [
+            { type: 'postback', label: 'ยืนยัน', data: `action=confirm&id=${booking.id}` },
+            { type: 'postback', label: 'ปฏิเสธ', data: `action=reject&id=${booking.id}` },
+          ],
         },
-      ],
-    });
-  }
+      },
+    ],
+  });
 }
 
 function summary(b) {
   return (
-    `${b.customer_name} (${b.phone})\n` +
+    `${b.source === 'web' ? '[เว็บ] ' : ''}${b.customer_name} (${b.phone})\n` +
     `จุด ${b.spots?.name} | ${b.guests} คน\n` +
     `${b.check_in} ถึง ${b.check_out}\n` +
     `ยอด ${baht(b.total_price)} บาท`
@@ -431,13 +442,12 @@ async function handlePostback(event) {
     if (!['awaiting_confirm', 'confirmed'].includes(booking.status))
       return reply(event, [text(`รายการนี้ถูกดำเนินการแล้ว (สถานะ: ${STATUS_TH[booking.status]})`)]);
     await supabase.from('bookings').update({ status: 'cancelled' }).eq('id', id);
-    await reply(event, [text(`ยกเลิกการจองของ ${booking.customer_name} แล้ว`)]);
-    await client.pushMessage({
-      to: booking.line_user_id,
-      messages: [
-        text('การจองของคุณถูกยกเลิกแล้ว หากชำระเงินไปแล้ว แอดมินจะติดต่อเรื่องการคืนเงินครับ'),
-      ],
-    });
+    await reply(event, [
+      text(`ยกเลิกการจองของ ${booking.customer_name} แล้ว` + (booking.line_user_id ? '' : NO_LINE_NOTE(booking))),
+    ]);
+    await notifyCustomer(booking, [
+      text('การจองของคุณถูกยกเลิกแล้ว หากชำระเงินไปแล้ว แอดมินจะติดต่อเรื่องการคืนเงินครับ'),
+    ]);
     return;
   }
 
@@ -454,18 +464,21 @@ async function handlePostback(event) {
     })
     .eq('id', id);
 
-  await reply(event, [text(`${confirmed ? 'ยืนยัน' : 'ปฏิเสธ'}การจองของ ${booking.customer_name} แล้ว`)]);
+  await reply(event, [
+    text(
+      `${confirmed ? 'ยืนยัน' : 'ปฏิเสธ'}การจองของ ${booking.customer_name} แล้ว` +
+        (booking.line_user_id ? '' : NO_LINE_NOTE(booking))
+    ),
+  ]);
 
-  await client.pushMessage({
-    to: booking.line_user_id,
-    messages: [
-      text(
-        confirmed
-          ? `✅ ยืนยันการจองแล้ว\nจุด ${booking.spots?.name}\n${booking.check_in} ถึง ${booking.check_out}\nขอบคุณที่ใช้บริการครับ`
-          : '❌ ขออภัย การจองไม่ผ่านการยืนยัน (สลิปไม่ถูกต้องหรือยอดไม่ตรง) กรุณาติดต่อแอดมินครับ'
-      ),
-    ],
-  });
+  // ลูกค้าที่จองผ่านเว็บจะเห็นผลที่หน้าสถานะเอง
+  await notifyCustomer(booking, [
+    text(
+      confirmed
+        ? `✅ ยืนยันการจองแล้ว\nจุด ${booking.spots?.name}\n${booking.check_in} ถึง ${booking.check_out}\nขอบคุณที่ใช้บริการครับ`
+        : '❌ ขออภัย การจองไม่ผ่านการยืนยัน (สลิปไม่ถูกต้องหรือยอดไม่ตรง) กรุณาติดต่อแอดมินครับ'
+    ),
+  ]);
 }
 
 const port = process.env.PORT || 3000;
