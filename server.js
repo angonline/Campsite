@@ -311,7 +311,7 @@ async function myBookings(event) {
       `• จุด ${b.spots.name} | ${b.guests} คน\n  ${b.check_in} ถึง ${b.check_out} | ${baht(b.total_price)} บาท\n  สถานะ: ${STATUS_TH[b.status]}${b.booking_code ? `\n  รหัสจอง: ${b.booking_code}` : ''}`
   );
   return reply(event, [
-    text('การจองของคุณ\n\n' + lines.join('\n\n') + '\n\nการจองได้รับการยืนยันแล้ว ไม่สามารถยกเลิกได้ทุกกรณี'),
+    text('การจองของคุณ\n\n' + lines.join('\n\n') + '\n\nการจองได้รับการยืนยันแล้ว สงวนสิทธิ์ในการคืนเงินทุกกรณี'),
   ]);
 }
 
@@ -382,7 +382,7 @@ async function handleCustomerCancel(event, action, id) {
 
   // จ่ายแล้ว/ส่งสลิปแล้ว -> ส่งคำขอให้แอดมินพิจารณา
   await reply(event, [
-    text('ส่งคำขอยกเลิกให้แอดมินแล้วครับ แอดมินจะพิจารณาและติดต่อกลับ'),
+    text('ส่งคำขอยกเลิกให้แอดมินแล้วครับ ทางลานขอสงวนสิทธิ์ในการคืนเงินทุกกรณี'),
   ]);
   if (ADMIN_GROUP_ID) {
     await client.pushMessage({
