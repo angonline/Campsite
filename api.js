@@ -1,4 +1,5 @@
 import express from 'express';
+import crypto from 'node:crypto';
 import QRCode from 'qrcode';
 import generatePayload from 'promptpay-qr';
 
@@ -10,6 +11,38 @@ const todayTH = () =>
   new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
 const isDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(new Date(s));
 const nightsBetween = (a, b) => Math.round((new Date(b) - new Date(a)) / 86400000);
+const addDay = (s, d) => {
+  const x = new Date(s + 'T00:00:00Z');
+  x.setUTCDate(x.getUTCDate() + d);
+  return x.toISOString().slice(0, 10);
+};
+
+// ---- ล็อกอินแอดมิน: โทเคนแบบเซ็นชื่อ (HMAC) อายุ 12 ชั่วโมง ----
+const secret = () => process.env.ADMIN_SESSION_SECRET || process.env.ADMIN_PASSWORD || '';
+const hmac = (payload) =>
+  crypto.createHmac('sha256', secret()).update(payload).digest('base64url');
+function signToken() {
+  const payload = Buffer.from(JSON.stringify({ exp: Date.now() + 12 * 3600 * 1000 })).toString('base64url');
+  return `${payload}.${hmac(payload)}`;
+}
+function verifyToken(t) {
+  try {
+    const [payload, sig] = String(t).split('.');
+    if (!payload || !sig) return false;
+    const a = Buffer.from(sig);
+    const b = Buffer.from(hmac(payload));
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return false;
+    return JSON.parse(Buffer.from(payload, 'base64url').toString()).exp > Date.now();
+  } catch {
+    return false;
+  }
+}
+const safeEqual = (a, b) =>
+  crypto.timingSafeEqual(
+    crypto.createHash('sha256').update(String(a)).digest(),
+    crypto.createHash('sha256').update(String(b)).digest()
+  );
+
 const bad = (res, msg) => res.status(400).json({ error: msg });
 
 function validRange(check_in, check_out) {
@@ -30,7 +63,7 @@ function rateOk(key, limit, windowMs = 60 * 60 * 1000) {
   return true;
 }
 
-export function apiRouter({ supabase, client, notifyAdminSlip }) {
+export function apiRouter({ supabase, client, notifyAdminSlip, adminActions }) {
   const r = express.Router();
 
   // ปล่อยจุดที่ค้างชำระนานเกินกำหนด
@@ -283,6 +316,124 @@ export function apiRouter({ supabase, client, notifyAdminSlip }) {
     } catch (e) {
       console.error('web slip error', e);
       res.status(500).json({ error: 'ส่งสลิปไม่สำเร็จ กรุณาลองใหม่' });
+    }
+  });
+
+  // ================= หลังบ้านแอดมิน (ต้องล็อกอินด้วย ADMIN_PASSWORD) =================
+  const STATUSES = ['pending_payment', 'awaiting_confirm', 'confirmed', 'rejected', 'cancelled'];
+
+  const adminAuth = (req, res, next) => {
+    if (!process.env.ADMIN_PASSWORD)
+      return res.status(503).json({ error: 'ยังไม่ได้ตั้งค่า ADMIN_PASSWORD ใน Render' });
+    const t = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+    if (!verifyToken(t)) return res.status(401).json({ error: 'กรุณาเข้าสู่ระบบ' });
+    res.set('Cache-Control', 'no-store');
+    next();
+  };
+
+  r.post('/admin/login', (req, res) => {
+    if (!process.env.ADMIN_PASSWORD)
+      return res.status(503).json({ error: 'ยังไม่ได้ตั้งค่า ADMIN_PASSWORD ใน Render' });
+    if (!rateOk('login:' + req.ip, 8, 15 * 60 * 1000))
+      return res.status(429).json({ error: 'ลองรหัสผ่านบ่อยเกินไป กรุณารอ 15 นาที' });
+    if (!safeEqual(req.body?.password ?? '', process.env.ADMIN_PASSWORD))
+      return res.status(401).json({ error: 'รหัสผ่านไม่ถูกต้อง' });
+    res.json({ token: signToken() });
+  });
+
+  r.get('/admin/stats', adminAuth, async (_req, res) => {
+    try {
+      const today = todayTH();
+      const tomorrow = addDay(today, 1);
+      const monthStart = `${today.slice(0, 7)}-01T00:00:00+07:00`;
+      const head = { count: 'exact', head: true };
+
+      const [waiting, staying, arriving, revenue, free, spots] = await Promise.all([
+        supabase.from('bookings').select('id', head).eq('status', 'awaiting_confirm'),
+        supabase.from('bookings').select('id', head).eq('status', 'confirmed')
+          .lte('check_in', today).gt('check_out', today),
+        supabase.from('bookings').select('id', head).eq('status', 'confirmed').eq('check_in', today),
+        supabase.from('bookings').select('total_price').eq('status', 'confirmed').gte('confirmed_at', monthStart),
+        supabase.rpc('available_spots', { p_check_in: today, p_check_out: tomorrow }),
+        supabase.from('spots').select('name').eq('active', true).order('id'),
+      ]);
+
+      res.json({
+        today,
+        waiting: waiting.count || 0,
+        staying: staying.count || 0,
+        arriving_today: arriving.count || 0,
+        revenue_month: (revenue.data || []).reduce((n, x) => n + (x.total_price || 0), 0),
+        free: (free.data || []).map((s) => s.name),
+        all: (spots.data || []).map((s) => s.name),
+      });
+    } catch (e) {
+      console.error('admin stats error', e);
+      res.status(500).json({ error: 'ดึงข้อมูลสรุปไม่สำเร็จ' });
+    }
+  });
+
+  r.get('/admin/bookings', adminAuth, async (req, res) => {
+    try {
+      const { status, q, from, to } = req.query;
+      let query = supabase
+        .from('bookings')
+        .select('*, spots(name)')
+        .order('created_at', { ascending: false })
+        .limit(300);
+      if (STATUSES.includes(status)) query = query.eq('status', status);
+      if (isDate(from)) query = query.gte('check_in', from);
+      if (isDate(to)) query = query.lte('check_in', to);
+      const term = String(q || '').replace(/[%,()*\\]/g, '').trim().slice(0, 50);
+      if (term)
+        query = query.or(
+          `customer_name.ilike.%${term}%,phone.ilike.%${term}%,booking_code.ilike.%${term}%`
+        );
+      const { data, error } = await query;
+      if (error) throw error;
+      res.json({
+        bookings: data.map((b) => ({
+          id: b.id,
+          code: b.booking_code || null,
+          status: b.status,
+          spot: b.spots?.name,
+          name: b.customer_name,
+          phone: b.phone,
+          address: b.address,
+          check_in: b.check_in,
+          check_out: b.check_out,
+          guests: b.guests,
+          total: b.total_price,
+          source: b.source || 'line',
+          slip_url: b.slip_url || null,
+          created_at: b.created_at,
+          checked_in_at: b.checked_in_at || null,
+          has_line: !!b.line_user_id,
+        })),
+      });
+    } catch (e) {
+      console.error('admin list error', e);
+      res.status(500).json({ error: 'ดึงรายการจองไม่สำเร็จ' });
+    }
+  });
+
+  r.post('/admin/bookings/:id/:action', adminAuth, async (req, res) => {
+    try {
+      const { id, action } = req.params;
+      if (!UUID.test(id) || !['confirm', 'reject', 'cancel', 'checkin'].includes(action))
+        return bad(res, 'คำสั่งไม่ถูกต้อง');
+      const { data: b } = await supabase
+        .from('bookings')
+        .select('*, spots(name)')
+        .eq('id', id)
+        .maybeSingle();
+      if (!b) return res.status(404).json({ error: 'ไม่พบการจอง' });
+      const out = await adminActions.apply(b, action);
+      if (out.error) return res.status(409).json({ error: out.error });
+      res.json({ ok: true, ...out });
+    } catch (e) {
+      console.error('admin action error', e);
+      res.status(500).json({ error: 'ทำรายการไม่สำเร็จ' });
     }
   });
 

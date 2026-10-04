@@ -76,6 +76,11 @@ async function assignCode(id) {
   return data?.booking_code;
 }
 
+const confirmText = (b, code) =>
+  `✅ ยืนยันการจองแล้ว\nรหัสจอง: ${code}\nจุด ${b.spots?.name} | ${b.guests} คน\n${b.check_in} ถึง ${b.check_out}\n\nวันเข้าพัก กรุณาแจ้งรหัสจองนี้กับเจ้าหน้าที่ (พร้อมเบอร์โทรที่ใช้จอง)\n${CONTACT_TEXT}`;
+const rejectText = `❌ ขออภัย การจองไม่ผ่านการยืนยัน (สลิปไม่ถูกต้องหรือยอดไม่ตรง) กรุณาติดต่อแอดมินครับ\n${CONTACT_TEXT}`;
+const cancelText = 'การจองของคุณถูกยกเลิกแล้ว หากชำระเงินไปแล้ว แอดมินจะติดต่อเรื่องการคืนเงินครับ';
+
 const NO_LINE_NOTE = (b) => `\n(ลูกค้าจองผ่านเว็บ ไม่มี LINE โปรดแจ้งผลทางโทร ${b.phone})`;
 async function notifyCustomer(booking, messages) {
   if (!booking.line_user_id) return false;
@@ -87,7 +92,7 @@ const app = express();
 app.set('trust proxy', 1);
 
 app.use(express.static('public'));
-app.use('/api', express.json({ limit: '4mb' }), apiRouter({ supabase, client, notifyAdminSlip }));
+app.use('/api', express.json({ limit: '4mb' }), apiRouter({ supabase, client, notifyAdminSlip, adminActions: { apply: applyAdminAction } }));
 
 app.get('/', (_req, res) => res.send('camp-bot is running'));
 
@@ -462,6 +467,42 @@ async function dailySummary(event) {
   ]);
 }
 
+// ---------- ทำรายการจากหน้าเว็บแอดมิน (ใช้กติกาเดียวกับปุ่มใน LINE) ----------
+async function applyAdminAction(b, action) {
+  const now = new Date().toISOString();
+  const safeNotify = (messages) => notifyCustomer(b, messages).catch(() => false);
+
+  if (action === 'confirm' || action === 'reject') {
+    if (b.status !== 'awaiting_confirm')
+      return { error: `รายการนี้ถูกดำเนินการแล้ว (สถานะ: ${STATUS_TH[b.status]})` };
+    const confirmed = action === 'confirm';
+    await supabase
+      .from('bookings')
+      .update({ status: confirmed ? 'confirmed' : 'rejected', confirmed_at: confirmed ? now : null })
+      .eq('id', b.id);
+    const code = confirmed ? await assignCode(b.id) : null;
+    const notified = await safeNotify([text(confirmed ? confirmText(b, code) : rejectText)]);
+    return { code, notified, no_line: !b.line_user_id, phone: b.phone };
+  }
+
+  if (action === 'cancel') {
+    if (!ACTIVE.includes(b.status))
+      return { error: `ยกเลิกไม่ได้ (สถานะ: ${STATUS_TH[b.status]})` };
+    await supabase.from('bookings').update({ status: 'cancelled' }).eq('id', b.id);
+    const notified = await safeNotify([text(cancelText)]);
+    return { notified, no_line: !b.line_user_id, phone: b.phone };
+  }
+
+  if (action === 'checkin') {
+    if (b.status !== 'confirmed') return { error: 'ต้องเป็นการจองที่ยืนยันแล้วเท่านั้น' };
+    if (b.checked_in_at) return { error: 'เช็กอินไปแล้ว' };
+    const { error } = await supabase.from('bookings').update({ checked_in_at: now }).eq('id', b.id);
+    if (error) return { error: 'บันทึกเช็กอินไม่สำเร็จ (ตรวจว่ารัน migration_admin.sql แล้ว)' };
+    return {};
+  }
+  return { error: 'คำสั่งไม่ถูกต้อง' };
+}
+
 // ---------- ปุ่มกด (postback) ----------
 async function handlePostback(event) {
   const params = new URLSearchParams(event.postback.data);
@@ -493,7 +534,7 @@ async function handlePostback(event) {
       text(`ยกเลิกการจองของ ${booking.customer_name} แล้ว` + (booking.line_user_id ? '' : NO_LINE_NOTE(booking))),
     ]);
     await notifyCustomer(booking, [
-      text('การจองของคุณถูกยกเลิกแล้ว หากชำระเงินไปแล้ว แอดมินจะติดต่อเรื่องการคืนเงินครับ'),
+      text(cancelText),
     ]);
     return;
   }
@@ -523,8 +564,8 @@ async function handlePostback(event) {
   await notifyCustomer(booking, [
     text(
       confirmed
-        ? `✅ ยืนยันการจองแล้ว\nรหัสจอง: ${code}\nจุด ${booking.spots?.name} | ${booking.guests} คน\n${booking.check_in} ถึง ${booking.check_out}\n\nวันเข้าพัก กรุณาแจ้งรหัสจองนี้กับเจ้าหน้าที่ (พร้อมเบอร์โทรที่ใช้จอง)\n${CONTACT_TEXT}`
-        : `❌ ขออภัย การจองไม่ผ่านการยืนยัน (สลิปไม่ถูกต้องหรือยอดไม่ตรง) กรุณาติดต่อแอดมินครับ\n${CONTACT_TEXT}`
+        ? confirmText(booking, code)
+        : rejectText
     ),
   ]);
 }
