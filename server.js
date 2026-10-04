@@ -311,7 +311,7 @@ async function myBookings(event) {
       `• จุด ${b.spots.name} | ${b.guests} คน\n  ${b.check_in} ถึง ${b.check_out} | ${baht(b.total_price)} บาท\n  สถานะ: ${STATUS_TH[b.status]}${b.booking_code ? `\n  รหัสจอง: ${b.booking_code}` : ''}`
   );
   return reply(event, [
-    text('การจองของคุณ\n\n' + lines.join('\n\n') + '\n\nพิมพ์ "ยกเลิก" หากต้องการยกเลิก'),
+    text('การจองของคุณ\n\n' + lines.join('\n\n') + '\n\nการจองได้รับการยืนยันแล้ว ไม่สามารถยกเลิกได้ทุกกรณี'),
   ]);
 }
 
