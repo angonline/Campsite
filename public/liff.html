@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>จองพื้นที่กางเต็นท์</title>
+<title>จองที่กางเต็นท์</title>
 <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 <style>
   * { box-sizing: border-box; }
@@ -50,14 +50,15 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>⛺ จองพื้นที่กางเต็นท์</h1>
+  <h1>⛺ จองที่กางเต็นท์</h1>
 
   <div id="form">
     <div class="card">
       <div class="row">
-        <div><label>วันเข้าพัก(เฉพาะงานแฝดโพด 14พย69)</label><input type="date" id="in"></div>
-        <div><label>วันออก(ระบุ15พย69)</label><input type="date" id="out"></div>
+        <div><label>วันเข้าพัก</label><input type="date" id="in"></div>
+        <div><label>วันออก</label><input type="date" id="out"></div>
       </div>
+      <div class="hint" id="closedNote" style="display:none;margin-top:10px"></div>
       <label>จำนวนคน (สูงสุด 4)</label>
       <select id="guests">
         <option value="1">1 คน</option><option value="2" selected>2 คน</option>
@@ -83,7 +84,7 @@
     </div>
 
     <div class="card">
-      <label>ชื่อ-สกุล ผู้จอง</label><input id="name" autocomplete="name">
+      <label>ชื่อผู้จอง</label><input id="name" autocomplete="name">
       <label>เบอร์โทร</label><input id="phone" type="tel" inputmode="tel" autocomplete="tel">
       <label>ที่อยู่</label><textarea id="address" autocomplete="street-address"></textarea>
     </div>
@@ -94,28 +95,15 @@
     </div>
 
     <div class="card terms">
-       <h2>เงื่อนไขการจองและกฏระเบียบ</h2>
+      <h2>เงื่อนไขการจอง</h2>
       <!-- แก้ข้อความในรายการด้านล่างนี้ได้เลย (เพิ่ม/ลบ <li> ได้) -->
       <ul>
-        <li>ราคา 500 บาท/จุด/คืน รวมผู้พัก 2 คน หากเข้าพักเกิน/จุด เพิ่มคนละ 200 บาท/คืน (สูงสุด 4 คนต่อจุด)</li>
-       <li>ขนาดพื้นที่แต่ละจุด ประมาณ 10-15 ตารางเมตรสำหรับกางเต็นท์ </li>
-       <li>ผู้จองต้องนำเต็นท์ และอุปกรณ์แคมป์ปิ้งมาเองทั้งหมด เราให้เช่าเพียงพื้นที่กางเต็นท์เท่านั้น</li>
-        <li>กรุณาชำระเงินและส่งสลิปภายใน 20 นาทีหลังกดจอง มิฉะนั้นระบบจะปล่อยจุดคืนอัตโนมัติ</li>
+        <li>ราคา 500 บาท/จุด/คืน รวมผู้พัก 2 คน เพิ่มคนละ 200 บาท/คืน (สูงสุด 4 คนต่อจุด)</li>
+        <li>เวลาเข้าพัก [ใส่เวลา] และเวลาออก [ใส่เวลา]</li>
+        <li>กรุณาชำระเงินและส่งสลิปภายใน 20 นาทีหลังจอง มิฉะนั้นระบบจะปล่อยจุดคืนอัตโนมัติ</li>
         <li>การจองจะสมบูรณ์เมื่อแอดมินตรวจสอบและยืนยันแล้ว</li>
-        <li><b>การยกเลิกและคืนเงิน: หากทำการยืนยันการจองแล้ว ทางลานขอสงวนสิทธิ์ในการคืนเงินทุกกรณี</b></li>
-<li>เข้า Check in ได้ 13.00 น. Check out 12.00 น.</li>
-<li>ไม่อนุญาตให้ใช้แอร์เคลื่อนที่ เตาไฟฟ้า และเครื่องใช้ไฟฟ้ากำลังวัตต์สูงทุกชนิด </li>
-<li>งดใช้เสียงทุกประเภท ตั้งแต่ 22.00 - 07.00 น. </li>
-<li>ห้ามเปิดเครื่องเสียงติดรถยนต์ ทุกกรณี</li>
-<li>ไม่หัก หรือทำลาย ทรัพย์สินของทางลาน เช่นห้ามตัดต้นไม้ ดอกไม้ หรือสิ่งของภายในลาน</li>
-<li>ห้ามก่อไฟบนสนามหญ้าโดยเด็ดขาด ฝ่าฝืนปรับ 2000 บาท </li>
-<li>ห้ามทิ้งขยะทุกชนิดภายในบริเวณลาน ต้องนำไปทิ้งที่ถุงดำหรือบริเวณที่ทางลานจัดให้ทิ้งเท่านั้น</li>
-<li>ทรัพย์สิน หรือของมีค่าทุกชนิด ผู้เข้าแคมป์ต้องเก็บรักษาให้มิดชิด หากสูญหายจะไม่อยู่ในความรับผิดชอบของทางลานทุกกรณี</li>
-<li>ห้ามนำบุคคลภายนอก ที่ไม่ได้แจ้งเข้าพัก เข้ามาภายในลานก่อนได้รับอนุญาตโดยเด็ดขาด</li>
-<li>หากมีบุคคลภายนอกที่ต้องการเข้ามาชั่วคราว โดยต้องออกจากลานก่อนเวลา 18:00 น. มีค่าเข้าคนละ 100บาท</li>
-        <li>ห้ามนำสิ่งของผิดกฎหมายเข้ามาภายในบริเวณลาน เช่น อาวุธปืน ยาเสพติด อื่นๆที่ผิดกฎหมาย หากพบเห็นทางลานขอใช้สิทธิ์ในการแจ้งเจ้าหน้าที่ตำรวจเข้ามาดูแลความปลอดภัย</li>
-<li>ทั้งนี้กฏระเบียบขอบังคับทุกข้อ เพื่อความสุข ความสบายใจ และความปลอดภัยของผู้ร่วมพักอาศัยภายในลาน หวังเป็นอย่างยิ่งว่าทุกท่านจะ
-ให้ความร่วมมือปฏิบัติตามกฏระเบียบข้อบังคับของทางลาน ขอขอบพระคุณค่ะ</li>
+        <li>การยกเลิกและคืนเงิน: [ใส่นโยบายของคุณ]</li>
+        <li>[เงื่อนไขอื่น ๆ เช่น กฎของสถานที่ สัตว์เลี้ยง เสียงดัง]</li>
       </ul>
       <label class="agree"><input type="checkbox" id="agree"><span>ข้าพเจ้าได้อ่านและยอมรับเงื่อนไขการจองข้างต้น</span></label>
     </div>
@@ -129,7 +117,7 @@
     <div id="summary" class="hint"></div>
     <p><b id="amount"></b></p>
     <img id="qr" alt="QR ชำระเงิน">
-    <p class="hint">สแกนจ่ายผ่านแอปธนาคาร แล้วส่งรูปสลิปในแชต LINE OA<br><b></b>ภายใน <span id="hold"></span> นาที มิฉะนั้นระบบจะปล่อยจุดคืน</b></p>
+    <p class="hint">สแกนจ่ายผ่านแอปธนาคาร แล้วส่งรูปสลิปในแชต LINE OA<br>ภายใน <span id="hold"></span> นาที มิฉะนั้นระบบจะปล่อยจุดคืน</p>
     <p class="hint" id="contact"></p>
     <button class="go" id="close">กลับไปที่แชต</button>
   </div>
@@ -208,6 +196,42 @@ function fillContact() {
   }
 }
 
+const DOW_FULL = ['อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัสฯ', 'ศุกร์', 'เสาร์'];
+const fmtD = (d) => new Date(d + 'T00:00:00Z').toLocaleDateString('th-TH', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+function closedWhy(d) {
+  const r = (cfg.closed_ranges || []).find((x) => d >= x.start_date && d <= x.end_date);
+  if (r) return r.reason || 'ปิดรับจอง';
+  if ((cfg.closed_weekdays || []).includes(new Date(d + 'T00:00:00Z').getUTCDay())) return 'ไม่เปิดรับจอง';
+  return null;
+}
+function firstClosedNight() {
+  let d = $('in').value; const end = $('out').value;
+  while (d && d < end) { const why = closedWhy(d); if (why) return { d, why }; d = addDays(d, 1); }
+  return null;
+}
+function showClosedNote() {
+  const parts = [];
+  const w = cfg.closed_weekdays || [];
+  if (w.length) parts.push('ไม่เปิดรับจองคืนวัน' + w.map((i) => DOW_FULL[i]).join(' '));
+  (cfg.closed_ranges || []).forEach((r) => parts.push(
+    `ปิดรับจอง ${fmtD(r.start_date)}${r.end_date !== r.start_date ? ' – ' + fmtD(r.end_date) : ''}${r.reason ? ' (' + r.reason + ')' : ''}`));
+  if (cfg.max_advance_days) parts.push(`จองล่วงหน้าได้ไม่เกิน ${cfg.max_advance_days} วัน`);
+  if ((cfg.min_nights || 1) > 1) parts.push(`พักขั้นต่ำ ${cfg.min_nights} คืน`);
+  (cfg.min_night_rules || []).forEach((m) => parts.push(
+    `${fmtD(m.start_date)}${m.end_date !== m.start_date ? ' – ' + fmtD(m.end_date) : ''} พักขั้นต่ำ ${m.min_nights} คืน${m.reason ? ' (' + m.reason + ')' : ''}`));
+  const n = $('closedNote');
+  if (parts.length) { n.style.display = 'block'; n.textContent = 'ℹ️ ' + parts.join(' | '); }
+}
+
+function requiredNights() {
+  let need = cfg.min_nights || 1, why = '';
+  const last = addDays($('out').value, -1);
+  (cfg.min_night_rules || []).forEach((m) => {
+    if ($('in').value <= m.end_date && last >= m.start_date && m.min_nights > need) { need = m.min_nights; why = m.reason || 'ช่วงวันหยุด'; }
+  });
+  return { need, why };
+}
+
 function refreshPrice() {
   const p = price();
   $('priceNote').textContent = p.n > 0 ? `${fmt(p.perNight)} บาท/คืน × ${p.n} คืน` : 'เลือกวันที่เพื่อดูราคา';
@@ -226,6 +250,15 @@ async function loadSpots() {
   $('spots').innerHTML = '';
   updatePins(null);
   if (nights() < 1) { $('spotHint').textContent = '(เลือกวันที่ก่อน)'; return validate(); }
+  const cn = firstClosedNight();
+  if (cn) { $('spotHint').textContent = `(ไม่รับจองคืนวันที่ ${fmtD(cn.d)}: ${cn.why})`; return validate(); }
+  if (cfg.max_advance_days && $('in').value > addDays(cfg.today, cfg.max_advance_days)) {
+    $('spotHint').textContent = `(จองล่วงหน้าได้ไม่เกิน ${cfg.max_advance_days} วัน)`; return validate();
+  }
+  const rq = requiredNights();
+  if (nights() < rq.need) {
+    $('spotHint').textContent = `(ช่วงนี้ต้องพักอย่างน้อย ${rq.need} คืน${rq.why ? ' - ' + rq.why : ''})`; return validate();
+  }
   $('spotHint').textContent = '(กำลังโหลด...)';
   const r = await fetch(`/api/availability?check_in=${$('in').value}&check_out=${$('out').value}`);
   const d = await r.json();
@@ -244,8 +277,9 @@ async function loadSpots() {
 
 function onDates() {
   if ($('in').value) {
-    $('out').min = addDays($('in').value, 1);
-    if (!$('out').value || $('out').value <= $('in').value) $('out').value = addDays($('in').value, 1);
+    const gm = cfg.min_nights || 1;
+    $('out').min = addDays($('in').value, gm);
+    if (!$('out').value || $('out').value < addDays($('in').value, gm)) $('out').value = addDays($('in').value, gm);
   }
   refreshPrice(); loadSpots();
 }
@@ -286,7 +320,9 @@ async function submit() {
   if (!liff.isLoggedIn()) { liff.login(); return; }
   accessToken = liff.getAccessToken();
   $('in').min = cfg.today;
+  if (cfg.max_advance_days) $('in').max = addDays(cfg.today, cfg.max_advance_days);
   fillContact();
+  showClosedNote();
   ['in', 'out'].forEach((id) => $(id).addEventListener('change', onDates));
   $('guests').addEventListener('change', refreshPrice);
   ['name', 'phone', 'address'].forEach((id) => $(id).addEventListener('input', validate));

@@ -33,6 +33,11 @@
   .spots { display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px; margin-top: 8px; }
   .tile { font-size: 10px; text-align: center; padding: 6px 0; border-radius: 6px; background: var(--green); color: #fff; }
   .tile.busy { background: #8a978f; }
+  .dows { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0; }
+  .dows label { border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; display: flex; gap: 6px; align-items: center; font-size: 14px; }
+  .dows input { width: auto; }
+  .rng { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid var(--line); font-size: 14px; }
+  details summary { cursor: pointer; font-weight: 600; }
   .filters { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .filters .full { grid-column: 1 / -1; }
   .filters label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 3px; }
@@ -82,6 +87,40 @@
       <div class="spots" id="spots"></div>
       <div class="hint" style="margin-top:8px"><span style="color:var(--green)">■</span> ว่าง &nbsp;<span style="color:#8a978f">■</span> ไม่ว่างหรือถูกกันไว้ (รวมรอชำระเงิน)</div>
     </div>
+
+    <details class="card" id="closures">
+      <summary>ตั้งค่าวันปิดรับจอง</summary>
+      <p class="hint">ติ๊กวันที่ไม่เปิดรับจอง (นับตามคืนที่เข้าพัก เช่น ปิดวันอังคาร = ไม่รับคืนวันอังคาร)</p>
+      <div class="dows" id="dows"></div>
+      <button class="small" id="saveDows">บันทึกวันในสัปดาห์</button>
+      <p class="hint" style="margin-top:16px">ปิดเป็นช่วงวันที่ (เช่น ปิดปรับปรุง วันหยุดพิเศษ) ใส่ "ถึงคืนวันที่" เป็นคืนสุดท้ายที่ปิด</p>
+      <div class="filters">
+        <div><label>ตั้งแต่คืนวันที่</label><input id="rs" type="date"></div>
+        <div><label>ถึงคืนวันที่</label><input id="re" type="date"></div>
+        <div class="full"><label>เหตุผล (ไม่บังคับ)</label><input id="rr" maxlength="100" placeholder="เช่น ปิดปรับปรุงพื้นที่"></div>
+        <div class="full"><button class="small" id="addRange" style="width:100%">เพิ่มช่วงปิดรับจอง</button></div>
+      </div>
+      <div id="ranges" style="margin-top:10px"></div>
+      <p class="hint">การจองที่มีอยู่แล้วในช่วงที่ปิดจะไม่ถูกยกเลิกให้ ต้องจัดการเอง</p>
+    </details>
+
+    <details class="card" id="limits">
+      <summary>ตั้งค่าเงื่อนไขการจอง (ล่วงหน้า / คืนขั้นต่ำ)</summary>
+      <div class="filters" style="margin-top:10px">
+        <div><label>จองล่วงหน้าได้ไม่เกิน (วัน)</label><input id="advDays" type="number" min="0" max="730" placeholder="ว่าง = ไม่จำกัด"></div>
+        <div><label>พักขั้นต่ำปกติ (คืน)</label><input id="minN" type="number" min="1" max="14" value="1"></div>
+        <div class="full"><button class="small" id="saveLimits" style="width:100%">บันทึก</button></div>
+      </div>
+      <p class="hint" style="margin-top:16px">พักขั้นต่ำเฉพาะช่วงวันหยุด (ถ้าช่วงที่ลูกค้าเลือกมีคืนใดคืนหนึ่งอยู่ในช่วงนี้ จะต้องพักไม่น้อยกว่าที่ตั้ง)</p>
+      <div class="filters">
+        <div><label>ตั้งแต่คืนวันที่</label><input id="ms" type="date"></div>
+        <div><label>ถึงคืนวันที่</label><input id="me" type="date"></div>
+        <div><label>พักขั้นต่ำ (คืน)</label><input id="mn" type="number" min="2" max="14" value="2"></div>
+        <div><label>เหตุผล (ไม่บังคับ)</label><input id="mr" maxlength="100" placeholder="เช่น วันหยุดยาว"></div>
+        <div class="full"><button class="small" id="addMin" style="width:100%">เพิ่มช่วงพักขั้นต่ำ</button></div>
+      </div>
+      <div id="minRules" style="margin-top:10px"></div>
+    </details>
 
     <div class="card filters">
       <div class="full"><label>ค้นหา (ชื่อ / เบอร์ / รหัสจอง)</label><input id="q" placeholder="พิมพ์เพื่อค้นหา"></div>
@@ -165,6 +204,7 @@ function logout() {
 function start() {
   $('login').style.display = 'none'; $('app').style.display = 'block';
   loadAll();
+  loadClosures().catch(() => {});
   clearInterval(timer);
   timer = setInterval(() => { if (!document.hidden) loadAll(true); }, 30000);
 }
@@ -271,6 +311,74 @@ async function act(b, action, ask, btn) {
   } catch (e) { toast(e.message); }
   loadAll(true);
 }
+
+// ---------- วันปิดรับจอง ----------
+const DOW_TH = ['อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัสฯ', 'ศุกร์', 'เสาร์'];
+(function buildDows() {
+  DOW_TH.forEach((n, i) => {
+    const l = el('label'); const cb = el('input'); cb.type = 'checkbox'; cb.value = i;
+    l.appendChild(cb); l.appendChild(document.createTextNode(n)); $('dows').appendChild(l);
+  });
+})();
+
+async function loadClosures() {
+  const d = await api('/closures');
+  document.querySelectorAll('#dows input').forEach((cb) => { cb.checked = d.weekdays.includes(Number(cb.value)); });
+  const box = $('ranges'); box.textContent = '';
+  $('advDays').value = d.max_advance_days || '';
+  $('minN').value = d.min_nights || 1;
+  const mb = $('minRules'); mb.textContent = '';
+  if (!(d.min_rules || []).length) mb.appendChild(el('div', 'hint', 'ยังไม่มีช่วงพักขั้นต่ำเฉพาะวันหยุด'));
+  (d.min_rules || []).forEach((m) => {
+    const row = el('div', 'rng');
+    const t = m.start_date === m.end_date ? m.start_date : `${m.start_date} ถึง ${m.end_date}`;
+    row.appendChild(el('span', null, `${t} | ขั้นต่ำ ${m.min_nights} คืน` + (m.reason ? ` (${m.reason})` : '')));
+    const del = el('button', 'small red', 'ลบ');
+    del.onclick = async () => {
+      if (!confirm('ลบช่วงนี้?')) return;
+      try { await api('/rules/min-nights/' + m.id, { method: 'DELETE' }); toast('ลบแล้ว'); loadClosures(); }
+      catch (e) { toast(e.message); }
+    };
+    row.appendChild(del); mb.appendChild(row);
+  });
+  if (!d.ranges.length) box.appendChild(el('div', 'hint', 'ยังไม่มีช่วงวันปิดรับจอง'));
+  d.ranges.forEach((r) => {
+    const row = el('div', 'rng');
+    const t = r.start_date === r.end_date ? r.start_date : `${r.start_date} ถึง ${r.end_date}`;
+    row.appendChild(el('span', null, t + (r.reason ? ` (${r.reason})` : '')));
+    const del = el('button', 'small red', 'ลบ');
+    del.onclick = async () => {
+      if (!confirm('ลบช่วงปิดรับจองนี้?')) return;
+      try { await api('/closures/ranges/' + r.id, { method: 'DELETE' }); toast('ลบแล้ว'); loadClosures(); }
+      catch (e) { toast(e.message); }
+    };
+    row.appendChild(del); box.appendChild(row);
+  });
+}
+
+$('saveDows').onclick = async () => {
+  const weekdays = [...document.querySelectorAll('#dows input:checked')].map((c) => Number(c.value));
+  try { await api('/closures/weekdays', { method: 'POST', body: JSON.stringify({ weekdays }) }); toast('บันทึกแล้ว'); }
+  catch (e) { toast(e.message); }
+};
+$('saveLimits').onclick = async () => {
+  try {
+    await api('/rules/limits', { method: 'POST', body: JSON.stringify({ max_advance_days: $('advDays').value, min_nights: $('minN').value }) });
+    toast('บันทึกแล้ว');
+  } catch (e) { toast(e.message); }
+};
+$('addMin').onclick = async () => {
+  try {
+    await api('/rules/min-nights', { method: 'POST', body: JSON.stringify({ start: $('ms').value, end: $('me').value || $('ms').value, min_nights: $('mn').value, reason: $('mr').value }) });
+    $('ms').value = ''; $('me').value = ''; $('mr').value = ''; toast('เพิ่มแล้ว'); loadClosures();
+  } catch (e) { toast(e.message); }
+};
+$('addRange').onclick = async () => {
+  try {
+    await api('/closures/ranges', { method: 'POST', body: JSON.stringify({ start: $('rs').value, end: $('re').value || $('rs').value, reason: $('rr').value }) });
+    $('rs').value = ''; $('re').value = ''; $('rr').value = ''; toast('เพิ่มแล้ว'); loadClosures();
+  } catch (e) { toast(e.message); }
+};
 
 // ---------- ส่งออก CSV ----------
 function csv() {
