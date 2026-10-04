@@ -89,27 +89,60 @@ export function apiRouter({ supabase, client, notifyAdminSlip, adminActions }) {
 
   // กฎวันปิดรับจอง (ถ้ายังไม่ได้รัน migration จะถือว่าไม่มีกฎ ไม่ทำให้ระบบพัง)
   async function loadRules() {
-    const [cw, cd] = await Promise.all([
-      supabase.from('site_config').select('value').eq('key', 'closed_weekdays').maybeSingle(),
+    const [conf, cd, mn] = await Promise.all([
+      supabase
+        .from('site_config')
+        .select('key,value')
+        .in('key', ['closed_weekdays', 'max_advance_days', 'min_nights']),
       supabase
         .from('closed_dates')
         .select('id,start_date,end_date,reason')
         .gte('end_date', todayTH())
         .order('start_date'),
+      supabase
+        .from('min_night_rules')
+        .select('id,start_date,end_date,min_nights,reason')
+        .gte('end_date', todayTH())
+        .order('start_date'),
     ]);
-    const weekdays = String(cw.data?.value || '')
+    const kv = Object.fromEntries((conf.data || []).map((x) => [x.key, x.value]));
+    const weekdays = String(kv.closed_weekdays || '')
       .split(',')
       .filter((x) => x !== '')
       .map(Number)
       .filter((n) => n >= 0 && n <= 6);
-    return { weekdays, ranges: cd.data || [] };
+    return {
+      weekdays,
+      ranges: cd.data || [],
+      maxAdvance: Number(kv.max_advance_days) > 0 ? Number(kv.max_advance_days) : 0,
+      minNights: Math.max(1, Number(kv.min_nights) || 1),
+      minRules: mn.data || [],
+    };
   }
+
+  // ตรวจเงื่อนไขทั้งหมด: วันปิด, จองล่วงหน้าสูงสุด, จำนวนคืนขั้นต่ำ
   async function checkOpen(check_in, check_out) {
     const rules = await loadRules();
     for (let d = check_in; d < check_out; d = addDay(d, 1)) {
       const why = closedReason(d, rules);
       if (why) return `ไม่รับจองคืนวันที่ ${thaiDate(d)} (${why})`;
     }
+    if (rules.maxAdvance) {
+      const limit = addDay(todayTH(), rules.maxAdvance);
+      if (check_in > limit)
+        return `จองล่วงหน้าได้ไม่เกิน ${rules.maxAdvance} วัน (เข้าพักได้ถึงวันที่ ${thaiDate(limit)})`;
+    }
+    const nights = nightsBetween(check_in, check_out);
+    const last = addDay(check_out, -1);
+    let need = rules.minNights;
+    let why = '';
+    for (const m of rules.minRules) {
+      if (check_in <= m.end_date && last >= m.start_date && m.min_nights > need) {
+        need = m.min_nights;
+        why = m.reason || 'ช่วงวันหยุด';
+      }
+    }
+    if (nights < need) return `ช่วงวันที่เลือกต้องพักอย่างน้อย ${need} คืน${why ? ` (${why})` : ''}`;
     return null;
   }
 
@@ -199,6 +232,9 @@ export function apiRouter({ supabase, client, notifyAdminSlip, adminActions }) {
       },
       closed_weekdays: rules.weekdays,
       closed_ranges: rules.ranges,
+      max_advance_days: rules.maxAdvance,
+      min_nights: rules.minNights,
+      min_night_rules: rules.minRules,
       ...s,
     });
   });
@@ -486,7 +522,13 @@ export function apiRouter({ supabase, client, notifyAdminSlip, adminActions }) {
   // ---------- วันปิดรับจอง (แอดมินตั้งค่า) ----------
   r.get('/admin/closures', adminAuth, async (_req, res) => {
     const rules = await loadRules();
-    res.json({ weekdays: rules.weekdays, ranges: rules.ranges });
+    res.json({
+      weekdays: rules.weekdays,
+      ranges: rules.ranges,
+      max_advance_days: rules.maxAdvance,
+      min_nights: rules.minNights,
+      min_rules: rules.minRules,
+    });
   });
 
   r.post('/admin/closures/weekdays', adminAuth, async (req, res) => {
@@ -521,6 +563,48 @@ export function apiRouter({ supabase, client, notifyAdminSlip, adminActions }) {
     const id = Number(req.params.id);
     if (!Number.isInteger(id)) return bad(res, 'ไม่พบรายการ');
     const { error } = await supabase.from('closed_dates').delete().eq('id', id);
+    if (error) return res.status(500).json({ error: 'ลบไม่สำเร็จ' });
+    res.json({ ok: true });
+  });
+
+  // ---------- เงื่อนไขการจอง: ล่วงหน้าสูงสุด / คืนขั้นต่ำ ----------
+  r.post('/admin/rules/limits', adminAuth, async (req, res) => {
+    const adv = req.body?.max_advance_days === '' || req.body?.max_advance_days == null
+      ? 0 : Number(req.body.max_advance_days);
+    const minN = Number(req.body?.min_nights || 1);
+    if (!Number.isInteger(adv) || adv < 0 || adv > 730)
+      return bad(res, 'จองล่วงหน้าต้องเป็นตัวเลข 0-730 วัน (0 = ไม่จำกัด)');
+    if (!Number.isInteger(minN) || minN < 1 || minN > 14)
+      return bad(res, 'จำนวนคืนขั้นต่ำต้องอยู่ระหว่าง 1-14');
+    const { error } = await supabase.from('site_config').upsert([
+      { key: 'max_advance_days', value: adv ? String(adv) : '' },
+      { key: 'min_nights', value: String(minN) },
+    ]);
+    if (error)
+      return res.status(500).json({ error: 'บันทึกไม่สำเร็จ (ตรวจว่ารัน migration_closures.sql และ migration_rules.sql แล้ว)' });
+    res.json({ ok: true });
+  });
+
+  r.post('/admin/rules/min-nights', adminAuth, async (req, res) => {
+    const { start, end, min_nights, reason } = req.body || {};
+    const n = Number(min_nights);
+    if (!isDate(start) || !isDate(end) || end < start) return bad(res, 'ช่วงวันที่ไม่ถูกต้อง');
+    if (!Number.isInteger(n) || n < 2 || n > 14) return bad(res, 'คืนขั้นต่ำต้องอยู่ระหว่าง 2-14');
+    const { error } = await supabase.from('min_night_rules').insert({
+      start_date: start,
+      end_date: end,
+      min_nights: n,
+      reason: String(reason || '').trim().slice(0, 100) || null,
+    });
+    if (error)
+      return res.status(500).json({ error: 'บันทึกไม่สำเร็จ (ตรวจว่ารัน migration_rules.sql แล้ว)' });
+    res.json({ ok: true });
+  });
+
+  r.delete('/admin/rules/min-nights/:id', adminAuth, async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) return bad(res, 'ไม่พบรายการ');
+    const { error } = await supabase.from('min_night_rules').delete().eq('id', id);
     if (error) return res.status(500).json({ error: 'ลบไม่สำเร็จ' });
     res.json({ ok: true });
   });
