@@ -79,7 +79,8 @@ async function assignCode(id) {
 const confirmText = (b, code) =>
   `✅ ยืนยันการจองแล้ว\nรหัสจอง: ${code}\nจุด ${b.spots?.name} | ${b.guests} คน\n${b.check_in} ถึง ${b.check_out}\n\nวันเข้าพัก กรุณาแจ้งรหัสจองนี้กับเจ้าหน้าที่ (พร้อมเบอร์โทรที่ใช้จอง)\n${CONTACT_TEXT}`;
 const rejectText = `❌ ขออภัย การจองไม่ผ่านการยืนยัน (สลิปไม่ถูกต้องหรือยอดไม่ตรง) กรุณาติดต่อแอดมินครับ\n${CONTACT_TEXT}`;
-const cancelText = 'การจองของคุณถูกยกเลิกแล้ว หากชำระเงินไปแล้ว แอดมินจะติดต่อเรื่องการคืนเงินครับ';
+const CANCEL_POLICY = 'หลังจากการจองได้รับการยืนยันจากแอดมินแล้ว ทางร้านขอสงวนสิทธิ์ในการยกเลิกและคืนเงินทุกกรณี';
+const cancelText = `การจองของคุณถูกยกเลิกแล้ว หากมีข้อสงสัยกรุณาติดต่อแอดมิน\n${CONTACT_TEXT}`;
 
 const NO_LINE_NOTE = (b) => `\n(ลูกค้าจองผ่านเว็บ ไม่มี LINE โปรดแจ้งผลทางโทร ${b.phone})`;
 async function notifyCustomer(booking, messages) {
@@ -326,6 +327,7 @@ async function cancelMenu(event) {
   if (!data?.length)
     return reply(event, [text('ไม่พบการจองที่ยกเลิกได้ครับ')]);
   return reply(event, [
+    text(`⚠️ ${CANCEL_POLICY}\n\nหากยังต้องการดำเนินการ กรุณาเลือกการจองที่ต้องการยกเลิกด้านล่าง`),
     {
       type: 'template',
       altText: 'เลือกการจองที่ต้องการยกเลิก',
@@ -362,7 +364,7 @@ async function handleCustomerCancel(event, action, id) {
         altText: 'ยืนยันการยกเลิก',
         template: {
           type: 'confirm',
-          text: `ยืนยันยกเลิกจุด ${b.spots.name}\n${b.check_in} ถึง ${b.check_out}?`,
+          text: `⚠️ ${CANCEL_POLICY}\n\nยืนยันยกเลิกจุด ${b.spots.name} (${b.check_in} ถึง ${b.check_out})?`.slice(0, 240),
           actions: [
             { type: 'postback', label: 'ยกเลิกเลย', data: `action=cancel_yes&id=${id}` },
             { type: 'postback', label: 'ไม่ยกเลิก', data: `action=cancel_no&id=${id}` },
@@ -378,9 +380,9 @@ async function handleCustomerCancel(event, action, id) {
     return reply(event, [text('ยกเลิกการจองแล้วครับ')]);
   }
 
-  // จ่ายแล้ว/ส่งสลิปแล้ว -> ส่งคำขอให้แอดมินอนุมัติ (เรื่องคืนเงินแอดมินคุยกับลูกค้าเอง)
+  // จ่ายแล้ว/ส่งสลิปแล้ว -> ส่งคำขอให้แอดมินพิจารณา
   await reply(event, [
-    text('ส่งคำขอยกเลิกให้แอดมินแล้วครับ แอดมินจะติดต่อกลับเรื่องการคืนเงิน'),
+    text('ส่งคำขอยกเลิกให้แอดมินแล้วครับ แอดมินจะพิจารณาและติดต่อกลับ'),
   ]);
   if (ADMIN_GROUP_ID) {
     await client.pushMessage({
