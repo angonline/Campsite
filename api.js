@@ -54,6 +54,39 @@ function closedReason(d, rules) {
   return null;
 }
 
+// ตรวจข้อมูลที่แอดมินแก้ไข (ผ่อนปรนกว่าฟอร์มลูกค้า: ไม่ติดวันปิด/ล่วงหน้า/คืนขั้นต่ำ)
+function parseEdit(b) {
+  const name = String(b.name || '').trim();
+  const phone = String(b.phone || '').replace(/[-\s]/g, '');
+  const address = String(b.address || '').trim();
+  const guests = Number(b.guests);
+  const spot_id = Number(b.spot_id);
+  const total = Number(b.total);
+  if (!name || name.length > 100) return { error: 'กรุณากรอกชื่อ' };
+  if (!/^0\d{8,9}$/.test(phone)) return { error: 'เบอร์โทรไม่ถูกต้อง' };
+  if (address.length < 2 || address.length > 300) return { error: 'กรุณากรอกที่อยู่' };
+  if (!Number.isInteger(guests) || guests < 1 || guests > 4)
+    return { error: 'จำนวนคนต้องอยู่ระหว่าง 1-4' };
+  if (!Number.isInteger(spot_id)) return { error: 'กรุณาเลือกจุด' };
+  if (!isDate(b.check_in) || !isDate(b.check_out) || b.check_out <= b.check_in ||
+      nightsBetween(b.check_in, b.check_out) > 60)
+    return { error: 'วันที่ไม่ถูกต้อง' };
+  if (b.total === '' || b.total == null || !Number.isInteger(total) || total < 0 || total > 1000000)
+    return { error: 'ยอดไม่ถูกต้อง' };
+  return {
+    data: {
+      spot_id,
+      customer_name: name,
+      phone,
+      address,
+      check_in: b.check_in,
+      check_out: b.check_out,
+      guests,
+      total_price: total,
+    },
+  };
+}
+
 const bad = (res, msg) => res.status(400).json({ error: msg });
 
 function validRange(check_in, check_out) {
@@ -476,6 +509,7 @@ export function apiRouter({ supabase, client, notifyAdminSlip, adminActions }) {
       res.json({
         bookings: data.map((b) => ({
           id: b.id,
+          spot_id: b.spot_id,
           code: b.booking_code || null,
           status: b.status,
           spot: b.spots?.name,
@@ -607,6 +641,95 @@ export function apiRouter({ supabase, client, notifyAdminSlip, adminActions }) {
     const { error } = await supabase.from('min_night_rules').delete().eq('id', id);
     if (error) return res.status(500).json({ error: 'ลบไม่สำเร็จ' });
     res.json({ ok: true });
+  });
+
+  // ---------- แอดมินแก้ไขการจอง (ย้ายจุด เปลี่ยนวัน ฯลฯ) ----------
+  const EDITABLE = ['pending_payment', 'awaiting_confirm', 'confirmed'];
+
+  // ตัวเลือกจุดว่างสำหรับการจองนี้ (ไม่นับตัวเองเป็นคนจองทับ) + ราคาตามเรตปกติ
+  r.get('/admin/bookings/:id/options', adminAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { check_in, check_out } = req.query;
+      const guests = Number(req.query.guests);
+      if (!UUID.test(id) || !isDate(check_in) || !isDate(check_out) || check_out <= check_in)
+        return bad(res, 'วันที่ไม่ถูกต้อง');
+
+      const { data: cur } = await supabase.from('bookings').select('spot_id').eq('id', id).maybeSingle();
+      const { data: occ } = await supabase
+        .from('bookings')
+        .select('spot_id')
+        .in('status', EDITABLE)
+        .neq('id', id)
+        .lt('check_in', check_out)
+        .gt('check_out', check_in);
+      const taken = new Set((occ || []).map((x) => x.spot_id));
+
+      let q = supabase.from('spots').select('id,name').order('id');
+      q = cur?.spot_id ? q.or(`active.eq.true,id.eq.${Number(cur.spot_id)}`) : q.eq('active', true);
+      const { data: spots } = await q;
+
+      let suggested = null;
+      if (Number.isInteger(guests) && guests >= 1 && guests <= 4) {
+        const { data } = await supabase.rpc('calc_price', {
+          p_guests: guests,
+          p_check_in: check_in,
+          p_check_out: check_out,
+        });
+        suggested = data;
+      }
+      res.json({ spots: (spots || []).filter((s) => !taken.has(s.id)), suggested_total: suggested });
+    } catch (e) {
+      console.error('admin options error', e);
+      res.status(500).json({ error: 'ดึงตัวเลือกจุดไม่สำเร็จ' });
+    }
+  });
+
+  r.patch('/admin/bookings/:id', adminAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      if (!UUID.test(id)) return bad(res, 'ไม่พบการจอง');
+      const { data: old } = await supabase
+        .from('bookings')
+        .select('*, spots(name)')
+        .eq('id', id)
+        .maybeSingle();
+      if (!old) return res.status(404).json({ error: 'ไม่พบการจอง' });
+      if (!EDITABLE.includes(old.status))
+        return res.status(409).json({ error: 'แก้ไขได้เฉพาะการจองที่ยังใช้งานอยู่ (รอชำระ/รอยืนยัน/ยืนยันแล้ว)' });
+
+      const p = parseEdit(req.body || {});
+      if (p.error) return bad(res, p.error);
+
+      const { data: updated, error } = await supabase
+        .from('bookings')
+        .update(p.data)
+        .eq('id', id)
+        .select('*, spots(name)')
+        .single();
+      if (error) {
+        if (error.code === '23P01')
+          return res.status(409).json({ error: 'จุดนี้ถูกจองในช่วงวันที่เลือกแล้ว กรุณาเลือกจุดหรือวันอื่น' });
+        if (error.code === '23503') return bad(res, 'ไม่พบจุดที่เลือก');
+        throw error;
+      }
+
+      const changed = ['spot_id', 'check_in', 'check_out', 'guests', 'total_price'].some(
+        (k) => old[k] !== updated[k]
+      );
+      let notified = false;
+      if (changed && req.body?.notify) {
+        try {
+          notified = await adminActions.notifyEdited(updated);
+        } catch (e) {
+          console.error('notify edited failed', e);
+        }
+      }
+      res.json({ ok: true, changed, notified, no_line: !updated.line_user_id });
+    } catch (e) {
+      console.error('admin edit error', e);
+      res.status(500).json({ error: 'บันทึกการแก้ไขไม่สำเร็จ' });
+    }
   });
 
   return r;

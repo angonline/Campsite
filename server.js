@@ -93,7 +93,7 @@ const app = express();
 app.set('trust proxy', 1);
 
 app.use(express.static('public'));
-app.use('/api', express.json({ limit: '4mb' }), apiRouter({ supabase, client, notifyAdminSlip, adminActions: { apply: applyAdminAction } }));
+app.use('/api', express.json({ limit: '4mb' }), apiRouter({ supabase, client, notifyAdminSlip, adminActions: { apply: applyAdminAction, notifyEdited } }));
 
 app.get('/', (_req, res) => res.send('camp-bot is running'));
 
@@ -311,7 +311,7 @@ async function myBookings(event) {
       `• จุด ${b.spots.name} | ${b.guests} คน\n  ${b.check_in} ถึง ${b.check_out} | ${baht(b.total_price)} บาท\n  สถานะ: ${STATUS_TH[b.status]}${b.booking_code ? `\n  รหัสจอง: ${b.booking_code}` : ''}`
   );
   return reply(event, [
-    text('การจองของคุณ\n\n' + lines.join('\n\n') + '\n\nการจองได้รับการยืนยันแล้ว สงวนสิทธิ์ในการคืนเงินทุกกรณี'),
+    text('การจองของคุณ\n\n' + lines.join('\n\n') + '\n\nพิมพ์ "ยกเลิก" หากต้องการยกเลิก'),
   ]);
 }
 
@@ -382,7 +382,7 @@ async function handleCustomerCancel(event, action, id) {
 
   // จ่ายแล้ว/ส่งสลิปแล้ว -> ส่งคำขอให้แอดมินพิจารณา
   await reply(event, [
-    text('ส่งคำขอยกเลิกให้แอดมินแล้วครับ ทางลานขอสงวนสิทธิ์ในการคืนเงินทุกกรณี'),
+    text('ส่งคำขอยกเลิกให้แอดมินแล้วครับ แอดมินจะพิจารณาและติดต่อกลับ'),
   ]);
   if (ADMIN_GROUP_ID) {
     await client.pushMessage({
@@ -467,6 +467,18 @@ async function dailySummary(event) {
         (lines.length ? lines.join('\n') : 'วันนี้ยังไม่มีผู้เข้าพัก')
     ),
   ]);
+}
+
+// แจ้งลูกค้า LINE เมื่อแอดมินแก้ไขรายละเอียดการจอง
+async function notifyEdited(b) {
+  return notifyCustomer(b, [
+    text(
+      `📝 ปรับปรุงการจองของคุณ\n` +
+        (b.booking_code ? `รหัสจอง: ${b.booking_code}\n` : '') +
+        `จุด ${b.spots?.name} | ${b.guests} คน\n${b.check_in} ถึง ${b.check_out}\n` +
+        `ยอด ${baht(b.total_price)} บาท\n${CONTACT_TEXT}`
+    ),
+  ]).catch(() => false);
 }
 
 // ---------- ทำรายการจากหน้าเว็บแอดมิน (ใช้กติกาเดียวกับปุ่มใน LINE) ----------
