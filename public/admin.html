@@ -38,7 +38,12 @@
   .dows input { width: auto; }
   .rng { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid var(--line); font-size: 14px; }
   details summary { cursor: pointer; font-weight: 600; }
-  .filters { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  #editModal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 20; overflow-y: auto; padding: 16px; }
+  #editModal .mbox { background: var(--card); border-radius: 14px; padding: 16px; max-width: 520px; margin: 20px auto; }
+  #editModal h2 { font-size: 17px; margin: 0 0 12px; }
+  .filters label.chk { display: flex; gap: 8px; align-items: center; font-size: 14px; color: var(--fg); }
+  .filters label.chk input { width: auto; }
+  .filters {  display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .filters .full { grid-column: 1 / -1; }
   .filters label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 3px; }
   .b { border-radius: 12px; padding: 12px; margin-bottom: 10px; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,.08); }
@@ -140,6 +145,27 @@
 
     <div class="hint" id="count" style="margin:0 2px 8px"></div>
     <div id="list"></div>
+  </div>
+</div>
+<div id="editModal">
+  <div class="mbox">
+    <h2 id="eTitle"></h2>
+    <div class="filters">
+      <div><label>เข้าพัก</label><input id="eIn" type="date"></div>
+      <div><label>ออก</label><input id="eOut" type="date"></div>
+      <div><label>จำนวนคน</label>
+        <select id="eGuests"><option>1</option><option>2</option><option>3</option><option>4</option></select></div>
+      <div><label>จุด</label><select id="eSpot"></select></div>
+      <div class="full"><label>ยอด (บาท)</label><input id="eTotal" type="number" min="0">
+        <div class="hint" id="ePriceNote"></div></div>
+      <div class="full"><label>ชื่อ</label><input id="eName"></div>
+      <div class="full"><label>เบอร์โทร</label><input id="ePhone" type="tel"></div>
+      <div class="full"><label>ที่อยู่</label><input id="eAddr"></div>
+      <div class="full"><label class="chk"><input type="checkbox" id="eNotify"> แจ้งลูกค้าทาง LINE เมื่อมีการเปลี่ยนแปลง</label></div>
+    </div>
+    <div class="hint" id="eWarn" style="margin-top:8px"></div>
+    <div class="err" id="eErr"></div>
+    <div class="acts"><button id="eSave">บันทึก</button><button class="ghost" id="eClose">ปิด</button></div>
   </div>
 </div>
 <div id="toast"></div>
@@ -285,12 +311,18 @@ function card(b) {
   if (b.status === 'awaiting_confirm') {
     add('ยืนยัน', 'confirm', '', `ยืนยันการจองจุด ${b.spot} ของ ${b.name}?`);
     add('ปฏิเสธ', 'reject', 'red', `ปฏิเสธการจองของ ${b.name}?`);
+    add('ยกเลิก', 'cancel', 'red', `ยกเลิกการจองของ ${b.name}?`);
   }
   if (b.status === 'confirmed') {
     if (!b.checked_in_at) add('เช็กอิน', 'checkin', '', `เช็กอิน ${b.name} (จุด ${b.spot})?`);
-    add('ยกเลิก', 'cancel', 'red', `ยกเลิกการจองของ ${b.name}? (เรื่องคืนเงินต้องจัดการเอง)`);
+    add('ยกเลิก', 'cancel', 'red', `ยกเลิกการจองของ ${b.name}? (ระบบไม่ได้โอนเงินคืนให้อัตโนมัติ)`);
   }
   if (b.status === 'pending_payment') add('ยกเลิก', 'cancel', 'red', `ยกเลิกการจองของ ${b.name}?`);
+  if (['pending_payment', 'awaiting_confirm', 'confirmed'].includes(b.status)) {
+    const ed = el('button', 'small ghost', 'แก้ไข / ย้ายจุด');
+    ed.onclick = () => openEdit(b);
+    acts.appendChild(ed);
+  }
   if (acts.children.length) c.appendChild(acts);
   return c;
 }
@@ -311,6 +343,79 @@ async function act(b, action, ask, btn) {
   } catch (e) { toast(e.message); }
   loadAll(true);
 }
+
+// ---------- แก้ไขการจอง / ย้ายจุด ----------
+let editing = null, totalDirty = false;
+
+function openEdit(b) {
+  editing = b; totalDirty = false;
+  $('eTitle').textContent = `แก้ไขการจอง จุด ${b.spot}` + (b.code ? ` (${b.code})` : '');
+  $('eIn').value = b.check_in; $('eOut').value = b.check_out;
+  $('eGuests').value = String(b.guests); $('eTotal').value = b.total;
+  $('eName').value = b.name; $('ePhone').value = b.phone; $('eAddr').value = b.address;
+  $('eNotify').checked = b.has_line; $('eNotify').disabled = !b.has_line;
+  $('eWarn').textContent = b.status === 'pending_payment'
+    ? 'ลูกค้ายังไม่ชำระเงิน: ถ้าเปลี่ยนยอด ลูกค้า LINE ที่ถือ QR เดิมในแชตจะยังเห็นยอดเก่า ควรแจ้งลูกค้า'
+    : 'ลูกค้าชำระเงินแล้ว: ถ้ายอดใหม่ต่างจากเดิม ต้องจัดการส่วนต่างกับลูกค้าเอง (ระบบไม่ได้ทำให้)';
+  $('eErr').textContent = ''; $('ePriceNote').textContent = '';
+  $('editModal').style.display = 'block';
+  loadOptions(b.spot_id, false);
+}
+
+async function loadOptions(keepId, applyPrice) {
+  if (!editing || !$('eIn').value || !$('eOut').value || $('eOut').value <= $('eIn').value) return;
+  const q = new URLSearchParams({ check_in: $('eIn').value, check_out: $('eOut').value, guests: $('eGuests').value });
+  try {
+    const d = await api(`/bookings/${editing.id}/options?` + q);
+    const sel = $('eSpot'); sel.textContent = '';
+    const cur = keepId ?? Number(sel.value);
+    const stillFree = d.spots.some((s) => s.id === cur);
+    if (!stillFree) { const o = el('option', null, '— เลือกจุด —'); o.value = ''; sel.appendChild(o); }
+    d.spots.forEach((s) => { const o = el('option', null, s.name); o.value = s.id; sel.appendChild(o); });
+    sel.value = stillFree ? String(cur) : '';
+    $('eErr').textContent = !d.spots.length ? 'ไม่มีจุดว่างในช่วงวันที่เลือก'
+      : (!stillFree ? 'จุดเดิมไม่ว่างในช่วงนี้ กรุณาเลือกจุดใหม่' : '');
+    if (d.suggested_total != null) {
+      $('ePriceNote').textContent = `ยอดเดิม ${fmt(editing.total)} บาท | ราคาตามเรตปกติของช่วงที่เลือก ${fmt(d.suggested_total)} บาท`;
+      if (applyPrice && !totalDirty) $('eTotal').value = d.suggested_total;
+    }
+  } catch (e) { $('eErr').textContent = e.message; }
+}
+
+async function saveEdit() {
+  if (!$('eSpot').value) { $('eErr').textContent = 'กรุณาเลือกจุด'; return; }
+  $('eSave').disabled = true; $('eErr').textContent = '';
+  try {
+    const out = await api('/bookings/' + editing.id, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        spot_id: Number($('eSpot').value), check_in: $('eIn').value, check_out: $('eOut').value,
+        guests: Number($('eGuests').value), total: $('eTotal').value,
+        name: $('eName').value, phone: $('ePhone').value, address: $('eAddr').value,
+        notify: $('eNotify').checked,
+      }),
+    });
+    $('editModal').style.display = 'none';
+    let msg = 'บันทึกการแก้ไขแล้ว';
+    if (out.changed) {
+      if (out.notified) msg += '\nแจ้งลูกค้าทาง LINE แล้ว';
+      else if (out.no_line) msg += `\nลูกค้าจองผ่านเว็บ กรุณาโทรแจ้ง ${$('ePhone').value}`;
+      else if ($('eNotify').checked) msg += '\nแจ้งลูกค้าทาง LINE ไม่สำเร็จ กรุณาโทรแจ้ง';
+    }
+    toast(msg); loadAll(true);
+  } catch (e) { $('eErr').textContent = e.message; }
+  $('eSave').disabled = false;
+}
+
+$('eIn').addEventListener('change', () => {
+  if ($('eOut').value <= $('eIn').value) { const x = new Date($('eIn').value); x.setDate(x.getDate() + 1); $('eOut').value = x.toISOString().slice(0, 10); }
+  loadOptions(undefined, true);
+});
+$('eOut').addEventListener('change', () => loadOptions(undefined, true));
+$('eGuests').addEventListener('change', () => loadOptions(undefined, true));
+$('eTotal').addEventListener('input', () => { totalDirty = true; });
+$('eSave').onclick = saveEdit;
+$('eClose').onclick = () => { $('editModal').style.display = 'none'; };
 
 // ---------- วันปิดรับจอง ----------
 const DOW_TH = ['อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัสฯ', 'ศุกร์', 'เสาร์'];
